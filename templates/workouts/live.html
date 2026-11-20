@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Live workout{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Live workout</h1>
+    <p class="muted">
+      {% if session.target_exercise %}Target: <strong>{{ session.target_exercise.name }}</strong>{% else %}Mode: <strong>auto-detect</strong>{% endif %}
+      · Session #{{ session.pk }} · <kbd>Space</kbd> pause / resume
+    </p>
+  </div>
+  <span id="status-badge" class="badge"><span class="dot"></span><span id="status-text">{{ session.get_status_display }}</span></span>
+</div>
+
+<div class="live">
+  <div>
+    <div class="stage" id="stage">
+      <div class="stage-grid"></div>
+      <video id="video" class="mirror" autoplay playsinline muted></video>
+      <canvas id="overlay" class="mirror"></canvas>
+      <div class="stage-top">
+        <span class="badge" id="rec-badge"><span class="dot"></span> <span id="timer" class="mono">0:00</span></span>
+        <span class="badge" id="source-badge">Camera</span>
+        <span class="badge mono" id="latency-badge">– ms</span>
+      </div>
+      <div class="stage-overlay" id="stage-overlay">
+        <div>
+          <h2 id="overlay-title">Ready when you are</h2>
+          <p id="overlay-text">Stand so your whole body is visible, then press <strong>Begin</strong>.</p>
+        </div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-primary btn-lg" id="btn-begin">▶ Begin</button>
+      <button class="btn btn-lg" id="btn-pause" hidden>❚❚ Pause</button>
+      <button class="btn btn-lg" id="btn-resume" hidden>▶ Resume</button>
+      <button class="btn btn-lg btn-danger" id="btn-end">■ End workout</button>
+      <span class="spacer"></span>
+      <div class="source-toggle" role="group" aria-label="Input source">
+        <button type="button" id="src-camera" class="on">📷 Camera</button>
+        <button type="button" id="src-sim">🧪 Simulation</button>
+      </div>
+    </div>
+    <p class="muted small" style="margin-top:10px">
+      Prototype note: the pose detector and exercise classifier are placeholders, so the skeleton and
+      prediction are simulated and won't follow your movements yet. Rep counting and posture rules are real
+      and run on whatever keypoints the detector returns.
+    </p>
+  </div>
+
+  <div class="stack">
+    <div class="card">
+      <div class="card-head"><h2>Exercise</h2><span class="badge" id="ml-badge">ML</span></div>
+      <div class="ex-now">
+        <div class="icon" id="ex-icon">✨</div>
+        <div style="flex:1;min-width:0">
+          <div class="name" id="ex-name">Waiting…</div>
+          <div class="row small muted" style="justify-content:space-between"><span>Confidence</span><span id="conf-text" class="mono">–</span></div>
+          <div class="meter"><span id="conf-bar" style="width:0%"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="reps-box">
+        <div style="flex:1">
+          <div class="stat"><span class="label">Repetitions</span></div>
+          <div class="reps-count" id="reps">0</div>
+          <dl class="kv" style="margin-top:12px">
+            <dt>Good-form reps</dt><dd id="good-reps">0</dd>
+            <dt>Joint angle</dt><dd id="angle" class="mono">–</dd>
+            <dt>Session total</dt><dd id="total-reps">0</dd>
+          </dl>
+        </div>
+        <div class="meter vertical" title="Range of motion"><span id="rom-bar" style="height:0%"></span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Posture feedback</h2></div>
+      <div class="feedback-live" id="feedback-live"><div class="fb">Feedback appears here during the workout.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Activity</h2><span class="muted small" id="frames">0 frames</span></div>
+      <ul class="list log" id="event-log"><li class="muted">No events yet.</li></ul>
+    </div>
+  </div>
+</div>
+
+{{ summary|json_script:"session-data" }}
+<script>
+  window.GYM = {
+    sessionId: {{ session.pk }},
+    exercises: {},
+    urls: {
+      frame: "{% url 'workouts:api_session_frame' session.pk %}",
+      transition: "{% url 'workouts:api_session_transition' session.pk 'EVENT' %}",
+      exercises: "{% url 'workouts:api_exercises' %}",
+      detail: "{% url 'workouts:session_detail' session.pk %}",
+    },
+  };
+</script>
+{% endblock %}
+{% block scripts %}<script src="{% static 'js/live.js' %}"></script>{% endblock %}

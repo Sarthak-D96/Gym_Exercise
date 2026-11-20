@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Usage reports{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Usage &amp; performance</h1><p class="muted">Admin report · last 30 days</p></div>
+  <a class="btn" href="{% url 'admin:recognition_mlmodel_changelist' %}">Manage models →</a>
+</div>
+
+<div class="grid grid-4" style="margin-bottom:16px">
+  <div class="card stat"><span class="label">Users</span><span class="value">{{ totals.users }}</span><span class="sub">{{ totals.active_users }} active</span></div>
+  <div class="card stat"><span class="label">Sessions</span><span class="value">{{ totals.sessions }}</span><span class="sub">{{ totals.completed }} completed</span></div>
+  <div class="card stat"><span class="label">Reps counted</span><span class="value">{{ totals.reps }}</span><span class="sub">{{ totals.frames }} frames analysed</span></div>
+  <div class="card stat"><span class="label">Avg latency</span><span class="value">{{ totals.avg_latency }}<span class="muted" style="font-size:1rem"> ms</span></span><span class="sub">max {{ totals.max_latency }} ms · conf {{ totals.avg_confidence }}%</span></div>
+</div>
+
+<div class="grid grid-2" style="margin-bottom:16px">
+  <div class="card"><div class="card-head"><h2>Sessions per day</h2></div><div class="chart-box"><canvas id="chart-sessions"></canvas></div></div>
+  <div class="card"><div class="card-head"><h2>Inference latency</h2><span class="muted small">avg ms per frame</span></div><div class="chart-box"><canvas id="chart-latency"></canvas></div></div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Model storage</h2>{% if totals.simulated_share %}<span class="badge badge-warn">{{ totals.simulated_share }}% frames simulated</span>{% endif %}</div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Stage</th><th>Name</th><th>Version</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for m in models %}
+          <tr>
+            <td>{{ m.get_kind_display }}</td><td>{{ m.name }}</td><td class="mono">{{ m.version }}</td>
+            <td>{% if m.is_active %}<span class="badge badge-good">active</span>{% endif %}{% if m.is_dummy %} <span class="badge badge-warn">placeholder</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Most active users</h2></div>
+    {% if top_users %}
+    <table class="table">
+      <thead><tr><th>User</th><th class="num">Sessions</th><th class="num">Reps</th></tr></thead>
+      <tbody>{% for u in top_users %}<tr><td>{{ u.user__username }}</td><td class="num">{{ u.sessions }}</td><td class="num">{{ u.reps|default:0 }}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% else %}<div class="empty">No sessions in this period.</div>{% endif %}
+  </div>
+</div>
+<script>window.GYM = { urls: { data: "{% url 'reports:usage_data' %}" } };</script>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="{% static 'js/reports.js' %}"></script>
+{% endblock %}

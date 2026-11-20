@@ -1,0 +1,16 @@
+# Optional: PostgreSQL in Docker if you don't have it installed locally.
+#   docker compose up -d
+# then set POSTGRES_USER=gymrec / POSTGRES_PASSWORD=gymrec in .env
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: gymrec
+      POSTGRES_USER: gymrec
+      POSTGRES_PASSWORD: gymrec
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+volumes:
+  pgdata:

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Profile</h1><p class="muted">Used for calorie estimates and your weekly goal.</p></div>
+</div>
+<form method="post" class="grid grid-2" novalidate>
+  {% csrf_token %}
+  <div class="card">
+    <h2>Account</h2>
+    <div class="form-field"><label>Username</label><input value="{{ user.username }}" disabled></div>
+    {% for field in user_form %}{% include "partials/field.html" %}{% endfor %}
+  </div>
+  <div class="card">
+    <h2>Fitness profile</h2>
+    {% for field in profile_form %}{% include "partials/field.html" %}{% endfor %}
+    <button class="btn btn-primary" type="submit">Save changes</button>
+  </div>
+</form>
+{% endblock %}

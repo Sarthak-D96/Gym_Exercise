@@ -1,0 +1,155 @@
+"""
+Orchestrates one frame through the recognition pipeline.
+
+    frame ─► 4.1 preprocess ─► 4.2 pose + features ─► 4.3 classify ─► 4.4 refine
+                                                   └─► 5 rep counter ─► 6/7 posture feedback
+
+The engine is stateless; everything that must survive between frames is in
+the JSON-serialisable `state` dict, which the caller persists (on the
+WorkoutSession row) and passes back on the next frame.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from . import posture, rep_counter
+from .classifier import ExerciseClassifier
+from .features import extract_features
+from .pose_detector import PoseDetector
+from .preprocess import preprocess_frame
+from .refine import refine
+from .types import ExerciseSpec, Feedback, FrameResult
+
+logger = logging.getLogger("recognition")
+
+FEATURE_WINDOW = 16
+
+
+class RecognitionEngine:
+    def __init__(
+        self,
+        specs: dict[str, ExerciseSpec],
+        pose_detector: PoseDetector,
+        classifier: ExerciseClassifier,
+        *,
+        input_size: int = 256,
+        smoothing_window: int = 8,
+        min_confidence: float = 0.6,
+    ):
+        self.specs = specs
+        self.pose_detector = pose_detector
+        self.classifier = classifier
+        self.input_size = input_size
+        self.smoothing_window = smoothing_window
+        self.min_confidence = min_confidence
+
+    def process(
+        self,
+        frame_bytes: bytes | None,
+        *,
+        timestamp_ms: float,
+        state: dict,
+        context: dict | None = None,
+    ) -> tuple[FrameResult, dict]:
+        context = dict(context or {})
+        state = dict(state or {})
+
+        # 4.1 Preprocess
+        image = preprocess_frame(frame_bytes, self.input_size) if frame_bytes else None
+
+        # 4.2 Pose / keypoints
+        pose = self.pose_detector.detect_pose(image, timestamp_ms=timestamp_ms, context=context)
+        simulated = bool(pose.meta.get("dummy"))
+        if not pose.detected:
+            return self._no_pose(state, simulated), state
+
+        features = extract_features(pose.keypoints)
+        window = (state.get("feature_window", []) + [features])[-FEATURE_WINDOW:]
+        state["feature_window"] = window
+
+        # 4.3 Classification
+        raw_label, raw_conf = self.classifier.predict(window, context={**context, "pose_meta": pose.meta})
+
+        # 4.4 Validate & refine
+        label, conf, history = refine(
+            state.get("prediction_history", []), raw_label, raw_conf,
+            window=self.smoothing_window, min_confidence=self.min_confidence,
+        )
+        state["prediction_history"] = history
+
+        # Keep counting reps for the last confirmed exercise while the
+        # prediction is momentarily uncertain.
+        current = state.get("current_exercise")
+        changed = False
+        if label and label != current and label in self.specs:
+            current, changed = label, True
+            state["current_exercise"] = label
+            state["rep"] = rep_counter.RepState().to_dict()
+
+        events: list[Feedback] = []
+        live: list[Feedback] = []
+        reps = good = 0
+        completed = False
+        angle = None
+        progress = 0.0
+
+        if current in self.specs:
+            spec = self.specs[current]
+            rs = rep_counter.RepState.from_dict(state.get("rep"))
+
+            # 6/7 Posture analysis (frame-level)
+            live = posture.analyze(current, pose.keypoints)
+            if rs.moving:
+                for issue in live:
+                    if issue.code not in rs.rep_issues:
+                        rs.rep_issues.append(issue.code)
+                        events.append(issue)
+
+            # 5 Repetition counting
+            upd = rep_counter.update(spec, rs, pose.keypoints)
+            angle, progress, completed = upd.angle, upd.progress, upd.completed
+            if upd.completed:
+                if upd.good_form:
+                    events.append(Feedback("good", "good_rep", f"Rep {rs.count} — good form!"))
+                else:
+                    events.append(Feedback("info", "rep_with_issues", f"Rep {rs.count} counted — watch your form."))
+            elif upd.partial:
+                events.append(posture.partial_rep_feedback(current))
+            reps, good = rs.count, rs.good_count
+            state["rep"] = rs.to_dict()
+
+        target = context.get("target_exercise")
+        if target and label and label != target:
+            live.append(Feedback("info", "mismatch",
+                                 f"Detected {self.specs[label].name} but you selected {self.specs[target].name}."
+                                 if target in self.specs and label in self.specs else "Detected a different exercise."))
+
+        result = FrameResult(
+            pose_detected=True,
+            keypoints={k: v.to_dict() for k, v in pose.keypoints.items()},
+            exercise=current if current in self.specs else None,
+            confidence=conf if label == current else 0.0,
+            raw_exercise=raw_label,
+            raw_confidence=raw_conf,
+            exercise_changed=changed,
+            reps=reps,
+            good_reps=good,
+            rep_completed=completed,
+            angle=angle,
+            progress=progress,
+            live_feedback=live,
+            events=events,
+            simulated=simulated,
+        )
+        return result, state
+
+    def _no_pose(self, state: dict, simulated: bool) -> FrameResult:
+        rs = rep_counter.RepState.from_dict(state.get("rep"))
+        return FrameResult(
+            pose_detected=False, keypoints={}, exercise=state.get("current_exercise"), confidence=0.0,
+            raw_exercise=None, raw_confidence=0.0, exercise_changed=False, reps=rs.count,
+            good_reps=rs.good_count, rep_completed=False, angle=None, progress=0.0,
+            live_feedback=[Feedback("info", "no_pose", "Step into the frame so your whole body is visible.")],
+            events=[], simulated=simulated,
+        )

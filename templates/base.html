@@ -1,0 +1,52 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}GymRec{% endblock %} · GymRec</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav class="nav">
+    <div class="container">
+      <a class="brand" href="{% url 'workouts:dashboard' %}"><span class="brand-mark">◆</span> GymRec</a>
+      {% if user.is_authenticated %}
+        {% with name=request.resolver_match.url_name %}
+        <div class="nav-links">
+          <a href="{% url 'workouts:dashboard' %}" class="{% if name == 'dashboard' or name == 'live' %}active{% endif %}">Dashboard</a>
+          <a href="{% url 'workouts:history' %}" class="{% if name == 'history' or name == 'session_detail' %}active{% endif %}">History</a>
+          {% if user.is_staff %}
+            <a href="{% url 'reports:usage' %}" class="{% if name == 'usage' %}active{% endif %}">Reports</a>
+            <a href="{% url 'admin:index' %}">Admin</a>
+          {% endif %}
+        </div>
+        {% endwith %}
+        <div class="nav-user">
+          <a class="username muted" href="{% url 'accounts:profile' %}">{{ user.first_name|default:user.username }}</a>
+          <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}<button class="btn btn-sm">Log out</button></form>
+        </div>
+      {% else %}
+        <div class="spacer"></div>
+        <a class="btn btn-sm btn-ghost" href="{% url 'accounts:login' %}">Log in</a>
+        <a class="btn btn-sm btn-primary" href="{% url 'accounts:register' %}">Sign up</a>
+      {% endif %}
+    </div>
+  </nav>
+
+  {% block body %}
+  <main class="container">
+    {% if messages %}
+      <ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">GymRec prototype · UCS503 Software Engineering Project · TIET Patiala</footer>
+  {% endblock %}
+
+  <script src="{% static 'js/common.js' %}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% load static gym_extras %}
+{% block title %}History{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>History &amp; progress</h1><p class="muted">Your stored workouts and how they trend over time.</p></div>
+  <div class="source-toggle" role="group" aria-label="Range">
+    <button type="button" data-days="7">7 days</button>
+    <button type="button" data-days="30" class="on">30 days</button>
+    <button type="button" data-days="90">90 days</button>
+  </div>
+</div>
+
+<div class="grid grid-2" style="margin-bottom:16px">
+  <div class="card"><div class="card-head"><h2>Reps per day</h2></div><div class="chart-box"><canvas id="chart-reps"></canvas></div></div>
+  <div class="card"><div class="card-head"><h2>Form score</h2><span class="muted small">% of reps with good form</span></div><div class="chart-box"><canvas id="chart-form"></canvas></div></div>
+</div>
+<div class="grid grid-2" style="grid-template-columns:minmax(0,1fr) minmax(0,1.6fr);margin-bottom:16px">
+  <div class="card"><div class="card-head"><h2>By exercise</h2></div><div class="chart-box"><canvas id="chart-ex"></canvas></div></div>
+  <div class="card">
+    <div class="card-head"><h2>Workouts</h2><span class="muted small">{{ sessions|length }} shown</span></div>
+    {% if sessions %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Date</th><th>Exercises</th><th class="num">Reps</th><th class="num">Duration</th><th></th></tr></thead>
+        <tbody>
+          {% for s in sessions %}
+          <tr>
+            <td>{{ s.created_at|date:"M j, Y · H:i" }}</td>
+            <td><div class="chips">{% for r in s.records.all %}<span class="badge">{{ r.exercise.name }}</span>{% empty %}<span class="muted">—</span>{% endfor %}</div></td>
+            <td class="num">{{ s.total_reps }}</td>
+            <td class="num mono">{{ s.active_seconds|duration }}</td>
+            <td class="num"><a href="{% url 'workouts:session_detail' s.pk %}">Details →</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<div class="empty">No completed workouts yet.</div>{% endif %}
+  </div>
+</div>
+<script>window.GYM = { urls: { history: "{% url 'workouts:api_history' %}" } };</script>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="{% static 'js/history.js' %}"></script>
+{% endblock %}

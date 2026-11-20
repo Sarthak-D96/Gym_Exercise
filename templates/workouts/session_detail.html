@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% load gym_extras %}
+{% block title %}Workout #{{ session.pk }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <a class="small" href="{% url 'workouts:history' %}">← History</a>
+    <h1>Workout on {{ session.created_at|date:"l, M j" }}</h1>
+    <p class="muted">{{ session.started_at|date:"H:i"|default:"—" }} – {{ session.ended_at|date:"H:i"|default:"—" }} ·
+      {% if session.target_exercise %}target {{ session.target_exercise.name }}{% else %}auto-detect{% endif %} ·
+      {{ session.frames_processed }} frames analysed</p>
+  </div>
+  <form method="post" action="{% url 'workouts:delete_session' session.pk %}" onsubmit="return confirm('Delete this workout permanently?')">
+    {% csrf_token %}<button class="btn btn-danger btn-sm">Delete workout</button>
+  </form>
+</div>
+
+<div class="grid grid-4" style="margin-bottom:16px">
+  <div class="card stat"><span class="label">Total reps</span><span class="value">{{ session.total_reps }}</span></div>
+  <div class="card stat"><span class="label">Active time</span><span class="value mono">{{ session.active_seconds|duration }}</span></div>
+  <div class="card stat"><span class="label">Exercises</span><span class="value">{{ session.records.all|length }}</span></div>
+  <div class="card stat"><span class="label">Est. calories</span><span class="value">{{ session.estimated_calories }}</span><span class="sub">kcal (MET-based)</span></div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Exercises</h2></div>
+    {% if session.records.all %}
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Exercise</th><th class="num">Reps</th><th class="num">Good form</th><th class="num">Confidence</th><th class="num">Time</th></tr></thead>
+        <tbody>
+        {% for r in session.records.all %}
+          <tr>
+            <td>{{ r.exercise.icon }} {{ r.exercise.name }}</td>
+            <td class="num">{{ r.repetitions }}</td>
+            <td class="num">{% if r.form_score is not None %}{{ r.form_score }}%{% else %}–{% endif %}</td>
+            <td class="num">{{ r.avg_confidence|percent }}</td>
+            <td class="num mono">{{ r.duration_seconds|duration }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<div class="empty">No repetitions were recorded in this workout.</div>{% endif %}
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Feedback timeline</h2><span class="muted small">{{ session.feedback.all|length }} events</span></div>
+    {% if session.feedback.all %}
+    <ul class="list log" style="max-height:420px">
+      {% for f in session.feedback.all %}
+      <li><time>{{ f.created_at|date:"H:i:s" }}</time><span class="badge {{ f.level|level_badge }}">{{ f.get_level_display }}</span><span>{{ f.message }}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty">No feedback recorded.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

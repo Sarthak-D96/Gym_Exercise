@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% load gym_extras %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Hi {{ user.first_name|default:user.username }} 👋</h1>
+    <p class="muted">Pick an exercise or let the system recognise it automatically.</p>
+  </div>
+  <a class="btn" href="{% url 'workouts:history' %}">View progress →</a>
+</div>
+
+{% if unfinished %}
+<div class="banner">
+  <span class="badge badge-warn"><span class="dot"></span>{{ unfinished.get_status_display }}</span>
+  <span>You have an unfinished workout from {{ unfinished.created_at|timesince }} ago.</span>
+  <span class="spacer"></span>
+  <a class="btn btn-sm btn-primary" href="{% url 'workouts:live' unfinished.pk %}">Resume</a>
+</div>
+{% endif %}
+
+<div class="grid grid-4" style="margin-bottom:16px">
+  <div class="card stat"><span class="label">This week</span><span class="value">{{ stats.sessions_week }}<span class="muted" style="font-size:1rem"> / {{ stats.weekly_target }}</span></span><span class="sub">sessions vs goal</span></div>
+  <div class="card stat"><span class="label">Workouts</span><span class="value">{{ stats.total_sessions }}</span><span class="sub">completed all-time</span></div>
+  <div class="card stat"><span class="label">Total reps</span><span class="value">{{ stats.total_reps }}</span><span class="sub">counted automatically</span></div>
+  <div class="card stat"><span class="label">Active time</span><span class="value">{{ stats.total_minutes }}<span class="muted" style="font-size:1rem"> min</span></span><span class="sub">excluding pauses</span></div>
+</div>
+
+<div class="grid grid-2" style="grid-template-columns: minmax(0,1.4fr) minmax(0,1fr)">
+  <form class="card" method="post" action="{% url 'workouts:start' %}">
+    {% csrf_token %}
+    <div class="card-head"><h2>Start a workout</h2><span class="badge">Camera required · or simulation</span></div>
+    <div class="ex-grid">
+      <div class="ex-option">
+        <input type="radio" name="exercise" id="ex-auto" value="" checked>
+        <label for="ex-auto"><span class="ex-icon">✨</span><span class="ex-name">Auto-detect</span><span class="ex-muscle">ML recognises it</span></label>
+      </div>
+      {% for ex in exercises %}
+      <div class="ex-option">
+        <input type="radio" name="exercise" id="ex-{{ ex.slug }}" value="{{ ex.slug }}">
+        <label for="ex-{{ ex.slug }}"><span class="ex-icon">{{ ex.icon }}</span><span class="ex-name">{{ ex.name }}</span><span class="ex-muscle">{{ ex.muscle_group }}</span></label>
+      </div>
+      {% endfor %}
+    </div>
+    <button class="btn btn-primary btn-lg" type="submit">Start workout</button>
+  </form>
+
+  <div class="card">
+    <div class="card-head"><h2>Recent workouts</h2><a class="small" href="{% url 'workouts:history' %}">All →</a></div>
+    {% if recent %}
+    <ul class="list">
+      {% for s in recent %}
+      <li>
+        <div style="flex:1;min-width:0">
+          <a href="{% url 'workouts:session_detail' s.pk %}"><strong>{{ s.created_at|date:"D, M j · H:i" }}</strong></a>
+          <div class="chips" style="margin-top:4px">
+            {% for r in s.records.all %}<span class="badge">{{ r.exercise.name }} × {{ r.repetitions }}</span>{% empty %}<span class="muted small">No reps recorded</span>{% endfor %}
+          </div>
+        </div>
+        <span class="mono muted small">{{ s.active_seconds|duration }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty">No workouts yet — start your first one!</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
