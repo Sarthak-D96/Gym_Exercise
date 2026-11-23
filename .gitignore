@@ -7,3 +7,5 @@ media/
 ml_models/*
 !ml_models/README.md
 .DS_Store
+runs/
+yolo*.pt

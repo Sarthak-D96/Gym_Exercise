@@ -1,0 +1,205 @@
+"""Phase 4, rounds 3–4 — LSTM / GRU / 1D-CNN (TCN) on the raw (16, 42) sequences.
+
+Adam 1e-3, batch 64, class-weighted loss, early stopping on validation macro-F1.
+Augmentation (training only) is applied to the raw keypoints, then features are
+recomputed: left/right mirror, small rotation, keypoint noise, time stretch.
+
+Exports a TorchScript file that takes (batch, T, 42) and returns logits, which
+is what ml_models/README.md expects (T may be shorter than 16 in the website).
+
+Example:
+    python training/train_dl.py --data /data/gym/prepared --model lstm
+    python training/train_dl.py --data /data/gym/prepared --model cnn
+    python training/train_dl.py --data /data/gym/prepared --model lstm --eval-test
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+from torch import nn
+
+from common import FEATURE_SIZE, FLIP_PERM, features_np, load_classes, load_split, report, save_report
+
+
+# ---------------------------------------------------------------- models
+class RNNClassifier(nn.Module):
+    def __init__(self, n_classes, cell="lstm", hidden=128, layers=2, dropout=0.3):
+        super().__init__()
+        rnn = nn.LSTM if cell == "lstm" else nn.GRU
+        self.rnn = rnn(FEATURE_SIZE, hidden, num_layers=layers, batch_first=True,
+                       dropout=dropout if layers > 1 else 0.0)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(hidden, n_classes))
+
+    def forward(self, x):  # x: (B, T, 42)
+        out, _ = self.rnn(x)
+        return self.head(out[:, -1])
+
+
+class TCNClassifier(nn.Module):
+    """1D-CNN with dilated residual blocks (a small TCN) and global average pooling."""
+
+    def __init__(self, n_classes, channels=128, dropout=0.3):
+        super().__init__()
+        self.inp = nn.Conv1d(FEATURE_SIZE, channels, 1)
+        self.blocks = nn.ModuleList()
+        for d in (1, 2, 4):
+            self.blocks.append(nn.Sequential(
+                nn.Conv1d(channels, channels, 3, padding=d, dilation=d), nn.BatchNorm1d(channels), nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Conv1d(channels, channels, 3, padding=d, dilation=d), nn.BatchNorm1d(channels), nn.ReLU(),
+            ))
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(channels, n_classes))
+
+    def forward(self, x):  # x: (B, T, 42)
+        h = self.inp(x.transpose(1, 2))
+        for b in self.blocks:
+            h = h + b(h)
+        return self.head(h.mean(-1))
+
+
+def build(name, n_classes, hidden):
+    if name in ("lstm", "gru"):
+        return RNNClassifier(n_classes, cell=name, hidden=hidden)
+    return TCNClassifier(n_classes, channels=hidden)
+
+
+# ---------------------------------------------------------------- augmentation
+def augment(kp: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """kp: (B, T, 17, 3) -> augmented copy (B, T, 17, 3)."""
+    kp = kp.copy()
+    B, T = kp.shape[:2]
+    flip = rng.random(B) < 0.5
+    kp[flip] = kp[flip][:, :, FLIP_PERM]
+    kp[flip, :, :, 0] = 1.0 - kp[flip, :, :, 0]
+    # rotate about the hip centre by up to ±10°
+    th = np.radians(rng.uniform(-10, 10, B))[:, None, None]
+    c = kp[:, :, 11:13, :2].mean(2, keepdims=True)
+    x, y = kp[..., 0] - c[..., 0], kp[..., 1] - c[..., 1]
+    kp[..., 0] = c[..., 0] + x * np.cos(th) - y * np.sin(th)
+    kp[..., 1] = c[..., 1] + x * np.sin(th) + y * np.cos(th)
+    # keypoint jitter
+    kp[..., :2] += rng.normal(0, 0.005, kp[..., :2].shape)
+    # time stretch ±20 % (resample T frames from a stretched/squeezed span)
+    for i in np.flatnonzero(rng.random(B) < 0.5):
+        span = T * rng.uniform(0.8, 1.2)
+        start = rng.uniform(0, max(T - span, 0)) if span < T else 0.0
+        src = np.clip(np.round(start + np.linspace(0, span - 1, T)).astype(int), 0, T - 1)
+        kp[i] = kp[i, src]
+    return kp
+
+
+# ---------------------------------------------------------------- training
+@torch.no_grad()
+def predict(model, X, device, bs=512):
+    model.eval()
+    out = []
+    for s in range(0, len(X), bs):
+        out.append(model(torch.from_numpy(X[s:s + bs]).to(device)).argmax(-1).cpu().numpy())
+    return np.concatenate(out) if out else np.zeros(0, int)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--data", required=True, type=Path, help="output folder of build_dataset.py")
+    ap.add_argument("--model", choices=["lstm", "gru", "cnn"], required=True)
+    ap.add_argument("--out", type=Path, default=Path("runs"))
+    ap.add_argument("--hidden", type=int, default=128, help="units (RNN) or channels (CNN)")
+    ap.add_argument("--epochs", type=int, default=100)
+    ap.add_argument("--patience", type=int, default=10, help="early-stopping patience (epochs)")
+    ap.add_argument("--batch", type=int, default=64)
+    ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--no-augment", action="store_true")
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else
+                    "mps" if torch.backends.mps.is_available() else "cpu")
+    ap.add_argument("--workers-seed", type=int, default=42, dest="seed")
+    ap.add_argument("--eval-test", action="store_true", help="also score the test set (do this once, at the end)")
+    args = ap.parse_args()
+
+    torch.manual_seed(args.seed)
+    rng = np.random.default_rng(args.seed)
+    classes = load_classes(args.data)
+    Xtr, ytr, KPtr, _ = load_split(args.data, "train")
+    Xva, yva, _, _ = load_split(args.data, "val")
+    print(f"train {Xtr.shape}, val {Xva.shape}, {len(classes)} classes, device {args.device}")
+
+    counts = np.bincount(ytr, minlength=len(classes)).astype(np.float32)
+    w = torch.tensor(counts.sum() / np.maximum(counts, 1) / len(classes), device=args.device)
+    model = build(args.model, len(classes), args.hidden).to(args.device)
+    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    loss_fn = nn.CrossEntropyLoss(weight=w)
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    best_f1, best_state, bad, history = -1.0, None, 0, []
+    t_start = time.time()
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        order = rng.permutation(len(ytr))
+        total, t0 = 0.0, time.time()
+        for s in range(0, len(order), args.batch):
+            b = order[s:s + args.batch]
+            xb = Xtr[b] if args.no_augment else features_np(augment(KPtr[b], rng))
+            xb = torch.from_numpy(xb).to(args.device)
+            yb = torch.from_numpy(ytr[b]).to(args.device)
+            opt.zero_grad()
+            loss = loss_fn(model(xb), yb)
+            loss.backward()
+            opt.step()
+            total += loss.item() * len(b)
+        rep = report(yva, predict(model, Xva, args.device), classes)
+        history.append({"epoch": epoch, "loss": total / len(ytr), "val_acc": rep["accuracy"],
+                        "val_f1": rep["macro_f1"]})
+        print(f"epoch {epoch:3d}  loss {total / len(ytr):.4f}  val acc {rep['accuracy']:.4f}  "
+              f"val macro-F1 {rep['macro_f1']:.4f}  ({time.time() - t0:.0f}s)")
+        if rep["macro_f1"] > best_f1:
+            best_f1, bad = rep["macro_f1"], 0
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        else:
+            bad += 1
+            if bad >= args.patience:
+                print(f"Early stop: no val improvement for {args.patience} epochs")
+                break
+    train_time = time.time() - t_start
+
+    model.load_state_dict(best_state)
+    model.eval().cpu()
+    ts_file = args.out / f"{args.model}.pt"
+    scripted = torch.jit.trace(model, torch.zeros(1, 16, FEATURE_SIZE))
+    scripted.save(str(ts_file))
+    torch.save({"state_dict": best_state, "classes": classes, "args": vars(args) | {"data": str(args.data),
+                "out": str(args.out)}}, args.out / f"{args.model}_checkpoint.pth")
+    (args.out / "classes.json").write_text(json.dumps(classes, indent=2))
+    (args.out / f"{args.model}_history.json").write_text(json.dumps(history, indent=2))
+
+    # speed on CPU, one window at a time (as in the website)
+    x1 = torch.zeros(1, 16, FEATURE_SIZE)
+    with torch.no_grad():
+        for _ in range(5):
+            scripted(x1)
+        t0 = time.time()
+        for _ in range(100):
+            scripted(x1)
+    ms = (time.time() - t0) / 100 * 1000
+    extra = {"model": args.model, "train_seconds": train_time, "ms_per_window_cpu": ms,
+             "size_mb": ts_file.stat().st_size / 1e6, "best_val_macro_f1": best_f1}
+
+    rep = report(yva, predict(model, Xva, "cpu"), classes)
+    save_report(args.out, f"{args.model}_val", rep, classes, extra)
+    print(f"[{args.model}] best val accuracy {rep['accuracy']:.4f}  macro-F1 {rep['macro_f1']:.4f}  "
+          f"{ms:.2f} ms/window (CPU)  {extra['size_mb']:.1f} MB")
+
+    if args.eval_test:
+        Xte, yte, _, _ = load_split(args.data, "test")
+        rep = report(yte, predict(model, Xte, "cpu"), classes)
+        save_report(args.out, f"{args.model}_test", rep, classes, extra)
+        print(f"[{args.model}] TEST accuracy {rep['accuracy']:.4f}  macro-F1 {rep['macro_f1']:.4f}")
+    print(f"Saved {ts_file} (TorchScript, input (B, T, 42), output logits)")
+
+
+if __name__ == "__main__":
+    main()
