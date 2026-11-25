@@ -62,11 +62,32 @@ ML_MODELS, DL_MODELS = {"rf", "xgb"}, {"lstm", "gru", "cnn"}
 
 
 # ----------------------------------------------------------------- config helpers
+def resolve_classes() -> list[str]:
+    """
+    Turn config.CLASSES into slugs. Entries may be slugs ('push_up') or dataset
+    folder names ('push-up', 'barbell biceps curl', 'pull Up'). The list is
+    rewritten in place so every later step sees slugs.
+    """
+    by_folder = {slugify(f): slug for slug, ex in config.EXERCISES.items() for f in [slug, *ex["folders"]]}
+    resolved, unknown = [], []
+    for entry in config.CLASSES:
+        slug = by_folder.get(slugify(entry))
+        if slug is None:
+            unknown.append(entry)
+        elif slug not in resolved:
+            resolved.append(slug)
+    if unknown:
+        raise SystemExit(
+            f"Unknown classes in config.CLASSES: {unknown}.\n"
+            f"Use one of these slugs (or one of their dataset folder names in gym_config.EXERCISES):\n  "
+            + ", ".join(config.EXERCISES))
+    config.CLASSES[:] = resolved
+    return resolved
+
+
 def folder_map() -> dict[str, str]:
     """Dataset folder slug -> class slug, for the selected classes only."""
-    unknown = [c for c in config.CLASSES if c not in config.EXERCISES]
-    if unknown:
-        raise SystemExit(f"config.CLASSES has classes without an entry in config.EXERCISES: {unknown}")
+    resolve_classes()
     mapping: dict[str, str] = {}
     for cls in config.CLASSES:
         for folder in [cls, *config.EXERCISES[cls]["folders"]]:
@@ -213,6 +234,7 @@ def main(steps: list[str] | None = None) -> None:
     bad = [s for s in steps if s not in STEPS]
     if bad:
         raise SystemExit(f"Unknown steps {bad}; choose from {STEPS}")
+    resolve_classes()
     work().mkdir(parents=True, exist_ok=True)
     print(f"Classes: {config.CLASSES}\nModels:  {config.MODELS}\nWork dir: {work()}")
     for s in steps:
