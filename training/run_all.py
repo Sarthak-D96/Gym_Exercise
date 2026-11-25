@@ -1,5 +1,5 @@
 """
-Run the whole training pipeline from config.py and produce a model zip for the website.
+Run the whole training pipeline from gym_config.py and produce a model zip for the website.
 
     extract  YOLO-pose keypoints for the selected classes   (slow; resumable)
     build    clean, split by video, cut windows             -> WORK_DIR/prepared/
@@ -13,8 +13,9 @@ Command line:
     python training/run_all.py --steps train select
 
 Notebook (values can be overridden first):
-    import sys; sys.path.insert(0, "training")
-    import config, run_all
+    import sys; sys.path.insert(0, "/path/to/Gym_Exercise/training")
+    import run_all
+    config = run_all.config          # the loaded training/gym_config.py
     config.CLASSES = ["squat", "push_up"]
     run_all.preview()
     run_all.main()
@@ -35,8 +36,25 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 sys.path.insert(0, str(HERE))
 
-import config  # noqa: E402
 from common import slugify  # noqa: E402
+
+
+def _load_config():
+    """Load training/gym_config.py by path, so another module called 'config' can't shadow it."""
+    import importlib.util
+
+    path = HERE / "gym_config.py"
+    mod = sys.modules.get("gym_config")
+    if mod is not None and Path(getattr(mod, "__file__", "")).resolve() == path.resolve():
+        return mod
+    spec = importlib.util.spec_from_file_location("gym_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["gym_config"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+config = _load_config()  # notebooks: `config = run_all.config`, then override values
 
 STEPS = ["extract", "build", "train", "select"]
 ML_MODELS, DL_MODELS = {"rf", "xgb"}, {"lstm", "gru", "cnn"}

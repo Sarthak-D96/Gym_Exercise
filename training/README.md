@@ -2,9 +2,9 @@
 
 ## Quick start: one config, one command, best model to the website
 
-1. **Choose the classes** in `training/config.py` (`CLASSES`). Each class lists the dataset folder names
+1. **Choose the classes** in `training/gym_config.py` (`CLASSES`). Each class lists the dataset folder names
    that belong to it, and the rep-counting settings the website will use.
-2. **Run everything** with `training/kaggle_train.ipynb` on Kaggle, or with
+2. **Run everything** with `training/kaggle_train.ipynb` on Kaggle, `training/colab_train.ipynb` on Google Colab, or with
    `python training/run_all.py` on any machine:
    `extract → build → train (rf, xgb, lstm, gru, cnn) → select`.
    * `python training/run_all.py --preview` shows which folders map to which class before you start.

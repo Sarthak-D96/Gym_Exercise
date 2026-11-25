@@ -7,7 +7,7 @@ What it does:
   1. Unpacks the zip into ml_models/<model id>/ (a folder works too).
   2. Warns if this machine's library versions or input size differ from training.
   3. Adds/updates the website exercises for the trained classes (rep-counting
-     settings from training/config.py), so every class the model knows can be counted.
+     settings from training/gym_config.py), so every class the model knows can be counted.
   4. Runs `register_models`: checks the model loads and outputs one score per class,
      activates it together with its pose weights, stores its scores, and shows
      only the trained exercises on the website.

@@ -4,9 +4,13 @@ Training configuration — the one file to edit (Phases 3–4 in JOURNAL.md).
 `run_all.py` reads everything from here. In a notebook you can also override any
 value before running, e.g.
 
-    import config
+    import run_all
+    config = run_all.config
     config.CLASSES = ["squat", "push_up", "pull_up"]
-    import run_all; run_all.main()
+    run_all.main()
+
+(The file is called gym_config.py, not config.py, because Colab/Kaggle can already
+have an unrelated module named `config` that would be imported instead.)
 """
 
 # ---------------------------------------------------------------------------
