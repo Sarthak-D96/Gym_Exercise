@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -134,7 +135,9 @@ def run(cmd: list[str]) -> None:
     """Run a training script, streaming its output (also visible inside notebooks)."""
     cmd = [str(c) for c in cmd]
     print("\n$ " + " ".join(cmd), flush=True)
-    proc = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}  # child output is a pipe: without this, prints arrive in chunks
+    proc = subprocess.Popen(cmd, cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                            env=env)
     for line in proc.stdout:
         print(line, end="", flush=True)
     if proc.wait() != 0:

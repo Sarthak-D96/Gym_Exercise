@@ -107,6 +107,7 @@ def main():
     from ultralytics import YOLO
 
     model = YOLO(args.pose_model)
+    print(f"Scanning {args.data} ...", flush=True)
     items = find_items(args.data)
     if args.labels:
         from common import slugify
@@ -150,7 +151,7 @@ def main():
         out.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(out, kp=kp, label=label, step=step, source=str(path))
         done += 1
-        if n % 20 == 0 or n == len(items):
+        if n % 20 == 0 or n == len(items) or done == 1:
             rate = done / max(time.time() - t0, 1e-6)
             print(f"[{n}/{len(items)}] {rate:.2f} videos/s, last: {rel}")
 
