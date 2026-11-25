@@ -1,5 +1,23 @@
 # Training on another computer (Phases 3–4)
 
+## Quick start: one config, one command, best model to the website
+
+1. **Choose the classes** in `training/config.py` (`CLASSES`). Each class lists the dataset folder names
+   that belong to it, and the rep-counting settings the website will use.
+2. **Run everything** with `training/kaggle_train.ipynb` on Kaggle, or with
+   `python training/run_all.py` on any machine:
+   `extract → build → train (rf, xgb, lstm, gru, cnn) → select`.
+   * `python training/run_all.py --preview` shows which folders map to which class before you start.
+   * `--steps train select` re-runs only some steps.
+3. **Which model ships:** the one with the best **validation** macro-F1 (`config.SELECT_BY`).
+   Ties go to higher accuracy, then the faster model. Every model is then scored once on the test set,
+   for the report. The winner is packed as `WORK_DIR/gymrec_model_<model>-<date>.zip`, containing:
+   the model, `classes.json`, the pose weights, the scores, `results.md` and `model_card.json`.
+4. **On the laptop:** `python manage.py install_model path/to/gymrec_model_<id>.zip`. That's all.
+
+The sections below run the same scripts by hand.
+
+---
 Everything heavy (the ~10 GB dataset, keypoint extraction, training) happens on the
 training machine. The only thing that comes back to the laptop is the trained model
 (a few MB) plus `classes.json`.

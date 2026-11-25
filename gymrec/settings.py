@@ -128,7 +128,7 @@ RECOGNITION = {
     # Directory that holds trained model files (D2 Model Storage).
     "MODEL_DIR": BASE_DIR / "ml_models",
     # Frames are resized to this square size before pose detection (4.1).
-    "INPUT_SIZE": int(env("RECOGNITION_INPUT_SIZE", "256")),
+    "INPUT_SIZE": int(env("RECOGNITION_INPUT_SIZE", "640")),
     # Sliding window of predictions used by "Validate & Refine" (4.4).
     "SMOOTHING_WINDOW": int(env("RECOGNITION_SMOOTHING_WINDOW", "8")),
     # Below this smoothed confidence, the exercise is reported as "uncertain".

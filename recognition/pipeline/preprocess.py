@@ -36,5 +36,9 @@ def preprocess_frame(raw: bytes, size: int = 256) -> Image.Image:
     img = img.convert("RGB")
     img.thumbnail((size, size))
     canvas = Image.new("RGB", (size, size))
-    canvas.paste(img, ((size - img.width) // 2, (size - img.height) // 2))
+    left, top = (size - img.width) // 2, (size - img.height) // 2
+    canvas.paste(img, (left, top))
+    # Where the real picture sits inside the square, so a pose detector can map
+    # keypoints back to 0..1 of the *original* frame (the contract in ml_models/README.md).
+    canvas.info["content_box"] = (left, top, img.width, img.height)
     return canvas

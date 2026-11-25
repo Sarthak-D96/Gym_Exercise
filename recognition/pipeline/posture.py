@@ -51,6 +51,8 @@ PARTIAL_MESSAGES = {
     "bicep_curl": "Partial rep — curl all the way up.",
     "shoulder_press": "Partial rep — fully lock out your arms overhead.",
     "jumping_jack": "Partial rep — bring your arms all the way overhead.",
+    "bench_press": "Partial rep — lower the bar to your chest and press to full lockout.",
+    "pull_up": "Partial rep — pull until your chin clears the bar, then lower to a full hang.",
 }
 
 

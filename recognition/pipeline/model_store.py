@@ -21,15 +21,17 @@ from django.conf import settings
 from .classifier import DummyExerciseClassifier, ExerciseClassifier
 from .engine import RecognitionEngine
 from .pose_detector import DummyPoseDetector, PoseDetector
+from .trained_models import SklearnClassifier, TorchScriptClassifier, YoloPoseDetector
 from .types import ExerciseSpec
 
 POSE_BACKENDS: dict[str, type[PoseDetector]] = {
     "dummy": DummyPoseDetector,
-    # "movenet": MoveNetPoseDetector,      # TODO(model)
+    "yolo_pose": YoloPoseDetector,
 }
 CLASSIFIER_BACKENDS: dict[str, type[ExerciseClassifier]] = {
     "dummy": DummyExerciseClassifier,
-    # "lstm": LSTMExerciseClassifier,      # TODO(model)
+    "torchscript": TorchScriptClassifier,   # LSTM / GRU / 1D-CNN (.pt from training/train_dl.py)
+    "sklearn": SklearnClassifier,           # Random Forest / XGBoost (.joblib from training/train_ml.py)
 }
 
 _lock = threading.Lock()

@@ -14,7 +14,7 @@
     ["nose", "left_eye"], ["nose", "right_eye"], ["left_eye", "left_ear"], ["right_eye", "right_ear"],
   ];
   const FRAME_INTERVAL_MS = 150;  // ~6-7 fps upper bound; next frame waits for the previous response
-  const CAPTURE_WIDTH = 320;
+  const CAPTURE_WIDTH = 640;  // same resolution as the training videos
 
   const video = $("video");
   const overlay = $("overlay");

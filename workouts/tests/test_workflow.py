@@ -86,7 +86,8 @@ class WorkflowTests(TestCase):
         self.assertEqual(self.post_json(reverse("workouts:api_session_frame", args=[s.pk]), {"t": 0}).status_code, 404)
 
     def test_seeded_exercises(self):
-        self.assertEqual(Exercise.objects.count(), 6)
+        # 6 prototype exercises + bench_press and pull_up (migration 0003)
+        self.assertEqual(Exercise.objects.count(), 8)
 
     def test_reports_staff_only(self):
         self.client.force_login(self.user)

@@ -44,6 +44,13 @@ def find_items(root: Path):
     return items
 
 
+def label_of(path: Path, root: Path) -> str:
+    """Class name of a video / frame folder: the folder it sits in (or the root's own name)."""
+    if path == root or path.parent == root:
+        return root.name
+    return path.parent.name
+
+
 def best_person(result):
     """(17, 3) array for the biggest detected person, or None."""
     kps = result.keypoints
@@ -93,12 +100,19 @@ def main():
     ap.add_argument("--device", default=None, help="'0' for first GPU, 'cpu', 'mps' (Apple)")
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--imgsz", type=int, default=640)
+    ap.add_argument("--labels", nargs="*",
+                    help="only these class folders (compared as slugs: 'Push-Up' == 'push_up'); default: all")
     args = ap.parse_args()
 
     from ultralytics import YOLO
 
     model = YOLO(args.pose_model)
     items = find_items(args.data)
+    if args.labels:
+        from common import slugify
+
+        keep = {slugify(x) for x in args.labels}
+        items = [(k, p) for k, p in items if slugify(label_of(p, args.data)) in keep]
     if not items:
         sys.exit(f"No videos or frame folders found under {args.data}")
     print(f"Found {len(items)} videos/frame folders")
@@ -106,11 +120,8 @@ def main():
 
     t0, done, skipped, failed = time.time(), 0, 0, 0
     for n, (kind, path) in enumerate(items, 1):
-        if path == args.data:
-            label, rel = path.name, path.name
-        else:
-            label = path.parent.name if path.parent != args.data else args.data.name
-            rel = path.relative_to(args.data).with_suffix("").as_posix()
+        label = label_of(path, args.data)
+        rel = path.name if path == args.data else path.relative_to(args.data).with_suffix("").as_posix()
         # flatten the relative path into the file name so videos with the same
         # name in different sub-folders (data_btc / data_crawl) don't collide
         out = args.out / label / (rel.replace("/", "__") + ".npz")
