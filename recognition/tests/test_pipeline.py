@@ -81,9 +81,98 @@ class RepCounterTests(SimpleTestCase):
         state, _ = self.run_angles(PRESS, [85, 130, 170, 130, 85] * 2)
         self.assertEqual(state.count, 2)
 
+    def test_sparse_noisy_camera_input(self):
+        """One sample per frame at ~5 fps, squat only to parallel, no full lockout."""
+        import math
+        import random
+        rnd, state = random.Random(0), rep_counter.RepState()
+        for i in range(105):
+            t = i / 5
+            a = 158 - 53 * (1 - math.cos(2 * math.pi * min(t / 2, 10))) / 2 + rnd.gauss(0, 4)
+            rep_counter.update(SQUAT, state, leg(a))
+        self.assertEqual(state.count, 10)
+
+    def test_uses_side_facing_camera(self):
+        state = rep_counter.RepState()
+        for a in [170, 130, 90, 130, 170] * 2:
+            right = {k.replace("left_", "right_"): v for k, v in leg(a).items()}
+            hidden = {k: Keypoint(v.x, v.y, 0.1) for k, v in leg(175).items()}  # occluded left leg
+            for _ in range(2):
+                rep_counter.update(SQUAT, state, {**hidden, **right})
+        self.assertEqual(state.count, 2)
+
+    def test_invisible_joints_are_skipped(self):
+        state = rep_counter.RepState()
+        blind = {k: Keypoint(v.x, v.y, 0.05) for k, v in leg(90).items()}
+        for _ in range(10):
+            self.assertFalse(rep_counter.update(SQUAT, state, blind).tracked)
+        self.assertEqual((state.count, state.moving), (0, False))
+
+    def test_half_reps_and_standing_still_not_counted(self):
+        state, _ = self.run_angles(SQUAT, [170, 150, 135, 150, 170] * 3 + [168, 172] * 5)
+        self.assertEqual(state.count, 0)
+
+    def test_old_saved_state_still_loads(self):
+        s = rep_counter.RepState.from_dict({"count": 2, "moving": False, "unknown_old_key": 1})
+        self.assertEqual(s.count, 2)
+
     def test_state_roundtrip(self):
         s = rep_counter.RepState(count=4, moving=True, rep_issues=["x"])
         self.assertEqual(rep_counter.RepState.from_dict(s.to_dict()), s)
+
+
+class _ScriptedClassifier:
+    """Returns the labels of a script, one per frame."""
+    def __init__(self, labels):
+        self.labels, self.i = labels, 0
+
+    def predict(self, window, context=None):
+        label = self.labels[min(self.i, len(self.labels) - 1)]
+        self.i += 1
+        return label, 0.95
+
+
+class _ScriptedPose:
+    def __init__(self, angles):
+        self.angles, self.i = angles, 0
+
+    def detect_pose(self, image, timestamp_ms=0, context=None):
+        from recognition.pipeline.types import PoseResult
+        a = self.angles[min(self.i, len(self.angles) - 1)]
+        self.i += 1
+        from recognition.pipeline.types import KEYPOINT_NAMES
+        kp = {n: Keypoint(0.5, 0.3, 0.2) for n in KEYPOINT_NAMES}  # rest of the body: low confidence
+        kp.update(leg(a))
+        return PoseResult(keypoints=kp, score=0.9)
+
+
+class ExerciseSwitchTests(SimpleTestCase):
+    SPECS = {"squat": SQUAT, "lunge": ExerciseSpec("lunge", "Lunge", ("left_hip", "left_knee", "left_ankle"), 105, 160, "high")}
+    ANGLES = [170, 140, 100, 140, 170] * 6
+
+    def run_engine(self, labels, context=None):
+        engine = RecognitionEngine(self.SPECS, _ScriptedPose(self.ANGLES), _ScriptedClassifier(labels),
+                                   smoothing_window=1, min_confidence=0.5)
+        state, result = {}, None
+        for t in range(len(self.ANGLES)):
+            result, state = engine.process(None, timestamp_ms=t * 200, state=state, context=context or {})
+        return result
+
+    def test_brief_misclassification_does_not_reset_count(self):
+        labels = ["squat"] * 12 + ["lunge"] * 2 + ["squat"] * 16  # 2-frame glitch
+        result = self.run_engine(labels)
+        self.assertEqual((result.exercise, result.reps), ("squat", 6))
+
+    def test_target_exercise_is_always_counted(self):
+        labels = ["squat", "lunge"] * 15  # classifier can't decide
+        result = self.run_engine(labels, {"target_exercise": "squat"})
+        self.assertEqual((result.exercise, result.reps), ("squat", 6))
+
+    def test_sustained_change_switches_exercise(self):
+        labels = ["squat"] * 10 + ["lunge"] * 20
+        result = self.run_engine(labels)
+        self.assertEqual(result.exercise, "lunge")
+        self.assertGreaterEqual(result.reps, 2)
 
 
 class RefineTests(SimpleTestCase):
@@ -125,3 +214,23 @@ class EngineTests(SimpleTestCase):
         self.assertGreaterEqual(result.reps, 3)
         self.assertEqual(len(extract_features(DummyPoseDetector().detect_pose(
             None, timestamp_ms=0, context={}).keypoints)), FEATURE_SIZE)
+
+
+class ExtraFeatureTests(SimpleTestCase):
+    def test_extra_features_shape_and_tilt(self):
+        import numpy as np
+
+        from recognition.pipeline.extra_features import EXTENDED_SIZE, extend
+        from recognition.pipeline.types import KEYPOINT_NAMES
+
+        def pose(lying):
+            kp = {n: Keypoint(0.5, 0.5, 0.9) for n in KEYPOINT_NAMES}
+            for side, dx in (("left", -0.02), ("right", 0.02)):
+                kp[f"{side}_hip"] = Keypoint(0.5 + dx, 0.6)
+                kp[f"{side}_shoulder"] = Keypoint(0.3, 0.6 + dx) if lying else Keypoint(0.5 + dx, 0.3)
+            return extract_features(kp)
+
+        up, flat = extend(np.array([pose(False), pose(True)]))
+        self.assertEqual(up.shape, (EXTENDED_SIZE,))
+        self.assertAlmostEqual(float(up[FEATURE_SIZE]), 0.0, places=2)   # torso upright
+        self.assertAlmostEqual(float(flat[FEATURE_SIZE]), 0.5, places=2)  # torso horizontal

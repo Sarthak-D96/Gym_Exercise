@@ -142,5 +142,33 @@ MODELS = ["rf", "xgb", "lstm", "gru", "cnn"]  # remove any you don't want to tra
 SELECT_BY = "macro_f1"   # "macro_f1" or "accuracy", measured on the VALIDATION set
 FORCE_MODEL = None        # e.g. "lstm" to ship that model regardless of scores
 
+# A model already trained on the current data is skipped when the train step runs
+# again (so a disconnected Colab run resumes). True = retrain everything, e.g.
+# after changing ML_PARAMS / DL_PARAMS.
+RETRAIN = False
+
 ML_PARAMS = {"n_estimators": 500}
 DL_PARAMS = {"hidden": 128, "epochs": 100, "patience": 10, "batch": 64, "lr": 1e-3}
+
+# ---------------------------------------------------------------------------
+# 6. Two-stage model (router + specialists)
+# ---------------------------------------------------------------------------
+# True: train a router that picks the exercise GROUP, plus one specialist per
+# group that separates the look-alike exercises inside it, using 13 extra
+# geometry features (torso tilt, shin angle, wrist height, ...; see
+# recognition/pipeline/extra_features.py). Every stage tries all MODELS and keeps
+# its best on validation. False: one model for all classes (the original setup).
+TWO_STAGE = True
+
+# Groups of exercises that look alike. Only the classes in CLASSES are used;
+# empty groups are dropped and a one-exercise group needs no specialist. A class
+# in CLASSES that is in no group becomes its own group. Edit freely.
+GROUPS = {
+    "legs": ["squat", "lunge", "deadlift", "romanian_deadlift", "leg_extension", "hip_thrust"],
+    "press": ["push_up", "bench_press", "incline_bench_press", "decline_bench_press", "shoulder_press",
+              "chest_fly_machine", "tricep_dips"],
+    "pull": ["pull_up", "lat_pulldown", "t_bar_row"],
+    "arms": ["bicep_curl", "hammer_curl", "tricep_pushdown", "lateral_raise"],
+    "core": ["plank", "leg_raises", "russian_twist"],
+    "cardio": ["jumping_jack"],
+}

@@ -24,6 +24,10 @@ It unpacks the zip into `ml_models/<id>/`, adds any missing exercises, activates
 and its pose weights, stores the scores, and shows only the trained exercises. Installing an older
 zip again switches back to that model.
 
+Two-stage zips (`gymrec_model_two_stage-<date>.zip`) install the same way. Their folder holds
+`two_stage.json` (which file is the router and which is each group's specialist) next to the stage
+models; the active classifier row points at `two_stage.json`.
+
 Manual steps (for a single model file):
 
 1. Copy into this folder from the training run (Kaggle → notebook → Output, `gym/runs/`):

@@ -102,6 +102,42 @@ def load_classes(data_dir: Path) -> list[str]:
     return json.loads((data_dir / "classes.json").read_text())
 
 
+# ---------------------------------------------------------------- two-stage
+def extend_features(X: np.ndarray) -> np.ndarray:
+    """(..., 42) -> (..., 55): the website's recognition/pipeline/extra_features.py, shared code."""
+    from recognition.pipeline.extra_features import extend
+
+    return extend(X)
+
+
+def load_stage(stage_file: Path | None, data_dir: Path):
+    """
+    A stage of the two-stage model, written by run_all.py as JSON:
+        {"name": "legs", "classes": [...output labels...], "map": {dataset class: output label}}
+    The router maps every class to its group; a specialist maps only its group's classes.
+    Without a stage file this is the plain single-stage setup.
+    """
+    if stage_file is None:
+        return None, load_classes(data_dir)
+    stage = json.loads(Path(stage_file).read_text())
+    return stage, stage["classes"]
+
+
+def load_data(data_dir: Path, split: str, stage: dict | None = None, extra: bool = False):
+    """load_split, restricted/relabelled for a stage, optionally with the extra features."""
+    X, y, kp, video = load_split(data_dir, split)
+    if stage is not None:
+        base = load_classes(data_dir)
+        out = stage["classes"]
+        new = np.array([out.index(stage["map"][c]) if c in stage["map"] else -1 for c in base], dtype=np.int64)
+        y = new[y] if len(y) else y
+        keep = y >= 0
+        X, y, kp, video = X[keep], y[keep], kp[keep], video[keep]
+    if extra:
+        X = extend_features(X)
+    return X, y, kp, video
+
+
 def report(y_true, y_pred, classes) -> dict:
     from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 

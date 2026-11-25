@@ -17,6 +17,7 @@ Installing an older zip again switches back to it.
 
 import json
 import shutil
+import sys
 import zipfile
 from importlib import metadata
 from pathlib import Path
@@ -53,6 +54,8 @@ class Command(BaseCommand):
         rel = folder.relative_to(model_dir).as_posix()
         self.stdout.write(f"Model {card['id']}: {card['classifier']['name']}, "
                           f"{len(card['classes'])} classes ({', '.join(card['classes'])})")
+        for name, st in (card.get("stages") or {}).items():
+            self.stdout.write(f"  stage {name}: {st['model']} -> {', '.join(st['classes'])}")
 
         self._check_environment(card)
         self._sync_exercises(card, keep_exercise_settings)
@@ -109,15 +112,22 @@ class Command(BaseCommand):
 
     def _check_environment(self, card: dict):
         trained = card.get("library_versions", {})
-        needed = ["torch"] if card["classifier"]["backend"] == "torchscript" else ["scikit-learn"]
-        if card["classifier"]["model"] == "xgb":
+        clf = card["classifier"]
+        backends = clf.get("backends") or [clf["backend"]]  # a two-stage bundle lists every stage's backend
+        models = clf.get("models") or [clf["model"]]
+        needed = (["torch"] if "torchscript" in backends else []) + (["scikit-learn"] if "sklearn" in backends else [])
+        if "xgb" in models:
             needed.append("xgboost")
         for pkg in needed + ["ultralytics"]:
+            # "+cu130" etc. is the GPU build used for training; pip needs the plain version here
+            want = (trained.get(pkg) or "").split("+")[0] or None
             try:
                 have = metadata.version(pkg)
             except metadata.PackageNotFoundError:
-                raise CommandError(f"{pkg} is not installed. Run: pip install {pkg}=={trained.get(pkg, '')}".rstrip("="))
-            want = trained.get(pkg)
+                raise CommandError(
+                    f"{pkg} is not installed for {sys.executable}.\n"
+                    "Use the project's virtual environment (source .venv/bin/activate), "
+                    "or install the model libraries: pip install -r requirements.txt")
             if want and have.split(".")[:2] != want.split(".")[:2]:
                 self.stdout.write(self.style.WARNING(
                     f"{pkg} {have} here, {want} in training. If loading fails: pip install {pkg}=={want}"))

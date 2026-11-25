@@ -78,7 +78,15 @@ def windows(kp, valid, size, stride, min_frames):
 
 def load_dir(root: Path, args, aliases):
     videos, dropped = [], Counter()
-    for f in sorted(root.rglob("*.npz")):
+    files = sorted(root.rglob("*.npz"))
+    if args.classes:
+        # extract_keypoints.py writes <out>/<class folder>/<video>.npz: skip other classes
+        # without opening them (opening is slow on network drives such as Google Drive)
+        files = [f for f in files if aliases.get(slugify(f.parent.name), slugify(f.parent.name)) in args.classes]
+    print(f"Loading {len(files)} keypoint files from {root} ...", flush=True)
+    for n, f in enumerate(files, 1):
+        if n % 100 == 0:
+            print(f"  {n}/{len(files)}", flush=True)
         d = np.load(f, allow_pickle=False)
         label = slugify(str(d["label"]))
         label = aliases.get(label, label)
@@ -166,6 +174,7 @@ def main():
     classes = sorted({v["label"] for v in videos})
     cidx = {c: i for i, c in enumerate(classes)}
 
+    print(f"Loaded {len(videos)} videos; checking features and writing {args.out} ...", flush=True)
     sample = np.concatenate([v["windows"].reshape(-1, 17, 3) for v in videos[:50]])
     check_against_website(sample)
     print("Feature check passed: training features == website features.py")

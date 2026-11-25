@@ -21,7 +21,7 @@ from django.conf import settings
 from .classifier import DummyExerciseClassifier, ExerciseClassifier
 from .engine import RecognitionEngine
 from .pose_detector import DummyPoseDetector, PoseDetector
-from .trained_models import SklearnClassifier, TorchScriptClassifier, YoloPoseDetector
+from .trained_models import SklearnClassifier, TorchScriptClassifier, TwoStageClassifier, YoloPoseDetector
 from .types import ExerciseSpec
 
 POSE_BACKENDS: dict[str, type[PoseDetector]] = {
@@ -32,6 +32,7 @@ CLASSIFIER_BACKENDS: dict[str, type[ExerciseClassifier]] = {
     "dummy": DummyExerciseClassifier,
     "torchscript": TorchScriptClassifier,   # LSTM / GRU / 1D-CNN (.pt from training/train_dl.py)
     "sklearn": SklearnClassifier,           # Random Forest / XGBoost (.joblib from training/train_ml.py)
+    "two_stage": TwoStageClassifier,        # router + specialists (two_stage.json from training/select_two_stage.py)
 }
 
 _lock = threading.Lock()

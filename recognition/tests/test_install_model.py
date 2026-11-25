@@ -60,6 +60,58 @@ def make_bundle(root: Path, model_id="cnn-20261125-1200") -> Path:
     return zip_path
 
 
+def make_two_stage_bundle(root: Path, model_id="two_stage-20261126-1000") -> Path:
+    """Router (TorchScript) -> groups 'arms' (lateral_raise only, no model) and 'body' (sklearn specialist)."""
+    import joblib
+    import numpy as np
+    import torch
+    from sklearn.tree import DecisionTreeClassifier
+    from torch import nn
+
+    class Tiny(nn.Module):
+        def __init__(self, n):
+            super().__init__()
+            self.fc = nn.Linear(55, n)
+
+        def forward(self, x):
+            return self.fc(x.mean(1))
+
+    folder = root / f"gymrec_model_{model_id}"
+    folder.mkdir()
+    torch.jit.trace(Tiny(2).eval(), torch.zeros(1, 16, 55)).save(str(folder / "router.pt"))
+    tree = DecisionTreeClassifier().fit(np.random.default_rng(0).random((20, 275)), [0, 1] * 10)
+    joblib.dump({"model": tree}, folder / "body.joblib")
+    (folder / "two_stage.json").write_text(json.dumps({
+        "features": "extended",
+        "router": {"file": "router.pt", "model": "cnn", "backend": "torchscript", "classes": ["arms", "body"]},
+        "groups": {"arms": {"file": None, "model": None, "backend": None, "classes": ["lateral_raise"]},
+                   "body": {"file": "body.joblib", "model": "rf", "backend": "sklearn",
+                            "classes": ["pull_up", "squat"]}},
+    }))
+    (folder / "yolo11n-pose.pt").write_bytes(b"fake weights")
+    (folder / "classes.json").write_text(json.dumps(CLASSES))
+    (folder / "metrics_test.json").write_text(json.dumps({"accuracy": 0.8, "macro_f1": 0.75, "split": "test",
+                                                          "model": "two_stage"}))
+    (folder / "model_card.json").write_text(json.dumps({
+        "id": model_id,
+        "classifier": {"model": "two_stage", "name": "Two-stage (router + specialists)", "file": "two_stage.json",
+                       "backend": "two_stage", "backends": ["sklearn", "torchscript"], "models": ["cnn", "rf"]},
+        "stages": {"router": {"model": "cnn", "classes": ["arms", "body"]},
+                   "body": {"model": "rf", "classes": ["pull_up", "squat"]}},
+        "pose": {"file": "yolo11n-pose.pt", "name": "yolo11n-pose.pt"},
+        "classes": CLASSES,
+        "exercises": {"lateral_raise": LATERAL},
+        "preprocessing": {"imgsz": settings.RECOGNITION["INPUT_SIZE"], "window": 16},
+        "metrics": {"accuracy": 0.8, "macro_f1": 0.75, "split": "test"},
+        "library_versions": {},
+    }))
+    zip_path = root / f"{folder.name}.zip"
+    with zipfile.ZipFile(zip_path, "w") as z:
+        for f in folder.iterdir():
+            z.write(f, f"{folder.name}/{f.name}")
+    return zip_path
+
+
 class InstallModelTests(TestCase):
     def setUp(self):
         if not HAS_TORCH:
@@ -120,3 +172,20 @@ class InstallModelTests(TestCase):
             z.writestr("../evil.txt", "x")
         with self.assertRaises(CommandError):
             call_command("install_model", str(bad), stdout=io.StringIO())
+
+    def test_install_two_stage_bundle(self):
+        if importlib.util.find_spec("sklearn") is None:
+            self.skipTest("scikit-learn not installed")
+        zip_path = make_two_stage_bundle(self.src)
+        call_command("install_model", str(zip_path), stdout=io.StringIO())
+
+        clf = MLModel.objects.get(kind="classifier", is_active=True)
+        self.assertEqual(clf.name, "two_stage")
+        self.assertEqual(clf.model_path, "gymrec_model_two_stage-20261126-1000/two_stage.json")
+
+        engine = model_store.build_engine()
+        probs = engine.classifier.predict_proba([[0.1] * 42] * 5, context={})
+        self.assertEqual(set(probs), set(CLASSES))
+        self.assertAlmostEqual(sum(probs.values()), 1.0, places=5)
+        label, conf = engine.classifier.predict([[0.1] * 42] * 16, context={})
+        self.assertIn(label, CLASSES)

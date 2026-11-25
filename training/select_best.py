@@ -34,7 +34,10 @@ NAMES = {"rf": "Random Forest", "xgb": "XGBoost", "lstm": "LSTM", "gru": "GRU", 
 SUFFIX = {"rf": ".joblib", "xgb": ".joblib", "lstm": ".pt", "gru": ".pt", "cnn": ".pt"}
 
 
-def predict(model_file: Path, X: np.ndarray) -> np.ndarray:
+def predict_proba(model_file: Path, X: np.ndarray, n_classes: int) -> np.ndarray:
+    """(N, T, F) windows -> (N, n_classes) probabilities, for a .pt or .joblib model."""
+    if not len(X):
+        return np.zeros((0, n_classes), np.float32)
     if model_file.suffix == ".pt":
         import torch
 
@@ -42,13 +45,20 @@ def predict(model_file: Path, X: np.ndarray) -> np.ndarray:
         out = []
         with torch.no_grad():
             for s in range(0, len(X), 512):
-                out.append(net(torch.from_numpy(X[s:s + 512])).argmax(-1).numpy())
-        return np.concatenate(out) if out else np.zeros(0, int)
+                out.append(net(torch.from_numpy(np.ascontiguousarray(X[s:s + 512]))).softmax(-1).numpy())
+        return np.concatenate(out)
     import joblib
 
     bundle = joblib.load(model_file)
     model = bundle["model"] if isinstance(bundle, dict) else bundle
-    return model.predict(window_stats(X)).astype(int) if len(X) else np.zeros(0, int)
+    p = model.predict_proba(window_stats(X))
+    full = np.zeros((len(X), n_classes), np.float32)
+    full[:, np.asarray(model.classes_, dtype=int)] = p  # a class missing from training has no column
+    return full
+
+
+def predict(model_file: Path, X: np.ndarray, n_classes: int) -> np.ndarray:
+    return predict_proba(model_file, X, n_classes).argmax(-1).astype(int) if len(X) else np.zeros(0, int)
 
 
 def ms(r: dict) -> float:
@@ -122,7 +132,7 @@ def main():
     Xte, yte, _, _ = load_split(args.data, "test")
     if len(yte):
         for r in rows:
-            rep = report(yte, predict(r["file"], Xte), classes)
+            rep = report(yte, predict(r["file"], Xte, len(classes)), classes)
             extra = {k: r["raw"][k] for k in ("model", "ms_per_window", "ms_per_window_cpu", "size_mb")
                      if k in r["raw"]}
             save_report(args.runs, f"{r['model']}_test", rep, classes, extra)

@@ -15,6 +15,31 @@
    the model, `classes.json`, the pose weights, the scores, `results.md` and `model_card.json`.
 4. **On the laptop:** `python manage.py install_model path/to/gymrec_model_<id>.zip`. That's all.
 
+## Two-stage model (router + specialists)
+
+`config.TWO_STAGE = True` (the default) trains, instead of one model for all classes:
+
+```
+16-frame window ─► router: which group?  (config.GROUPS: legs, press, pull, arms, core, ...)
+                     └─► that group's specialist: which exercise?
+P(exercise) = P(group) × P(exercise | group)
+```
+
+* Every stage (the router and each specialist) is trained with every type in `config.MODELS` and keeps
+  its best on **validation**, so the router might be XGBoost and the legs specialist a CNN.
+* All stages also get 13 extra features computed from the 42 base ones
+  (`recognition/pipeline/extra_features.py`, shared with the website): torso tilt, shoulder/hip width,
+  wrist and elbow height, wrist reach, shin angle, body aspect, grip width.
+* `select_two_stage.py` scores each stage and the whole chain on validation and test. If a single-stage
+  run on the same classes exists in `WORK_DIR/runs/`, it is compared too (`results.md`).
+* Output: `WORK_DIR/gymrec_model_two_stage-<date>.zip`, installed with the same `install_model` command.
+  The website loads it through `TwoStageClassifier` (`recognition/pipeline/trained_models.py`).
+* Notebook: `training/colab_two_stage.ipynb`.
+* Training resumes after a disconnect: models already trained on the current data are skipped
+  (`config.RETRAIN = True` retrains them).
+
+Set `TWO_STAGE = False` for the original single-model setup.
+
 The sections below run the same scripts by hand.
 
 ---

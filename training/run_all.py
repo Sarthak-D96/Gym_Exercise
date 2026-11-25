@@ -7,6 +7,11 @@ Run the whole training pipeline from gym_config.py and produce a model zip for t
     select   best model on the validation set, test every
              model once, export the winner                   -> WORK_DIR/gymrec_model_<id>.zip
 
+With config.TWO_STAGE = True, `train` and `select` instead build the two-stage
+model (router -> exercise group, one specialist per group; every stage gets
+its best model type) in WORK_DIR/two_stage/ and export
+WORK_DIR/gymrec_model_two_stage-<date>.zip. Same install command.
+
 Command line:
     python training/run_all.py                    # all steps
     python training/run_all.py --preview          # only show which folders map to which classes
@@ -102,6 +107,56 @@ def work() -> Path:
     return Path(config.WORK_DIR)
 
 
+def two_stage() -> bool:
+    return bool(getattr(config, "TWO_STAGE", False))
+
+
+def group_plan() -> dict[str, list[str]]:
+    """config.GROUPS restricted to config.CLASSES (sorted, as the trainers' label order)."""
+    resolve_classes()
+    groups, seen = {}, {}
+    for g, members in getattr(config, "GROUPS", {}).items():
+        g = slugify(g)
+        picked = sorted(c for c in config.CLASSES if c in members)
+        for c in picked:
+            if c in seen:
+                raise SystemExit(f"'{c}' is in two groups: '{seen[c]}' and '{g}' (config.GROUPS).")
+            seen[c] = g
+        if picked:
+            groups[g] = picked
+    for c in config.CLASSES:
+        if c not in seen:
+            groups[c] = [c]  # not in any group: its own group
+    return dict(sorted(groups.items()))
+
+
+def write_stages() -> Path:
+    """WORK_DIR/two_stage/plan.json + stages/<name>.json, read by the trainers and select_two_stage.py."""
+    groups = group_plan()
+    root = work() / "two_stage"
+    (root / "stages").mkdir(parents=True, exist_ok=True)
+    stages = []
+    if len(groups) > 1:
+        router = {"name": "router", "classes": list(groups), "map": {c: g for g, cs in groups.items() for c in cs}}
+        _write_if_changed(root / "stages" / "router.json", json.dumps(router, indent=2))
+        stages.append("router")
+    for g, cs in groups.items():
+        if len(cs) > 1:
+            _write_if_changed(root / "stages" / f"{g}.json",
+                              json.dumps({"name": g, "classes": cs, "map": {c: c for c in cs}}, indent=2))
+            stages.append(g)
+    plan = {"groups": groups, "stages": stages}
+    (root / "plan.json").write_text(json.dumps(plan, indent=2))
+    return root / "plan.json"
+
+
+def show_groups() -> None:
+    groups = group_plan()
+    print("Two-stage plan:" + ("" if len(groups) > 1 else " (only one group: no router needed)"))
+    for g, cs in groups.items():
+        print(f"  {g:10s} {'specialist' if len(cs) > 1 else 'no model  '}  {', '.join(cs)}")
+
+
 def _device():
     try:
         import torch
@@ -148,6 +203,9 @@ def preview() -> dict[str, int]:
     if missing:
         print(f"  ! No videos found for: {', '.join(missing)}. Add their folder names to "
               "config.EXERCISES[...]['folders'] or remove them from config.CLASSES.")
+    if two_stage():
+        print()
+        show_groups()
     return {c: per_class[c] for c in config.CLASSES}
 
 
@@ -187,13 +245,42 @@ def step_build():
         cmd += ["--test-keypoints", work() / "keypoints_test"]
     if config.GROUP_REGEX:
         cmd += ["--group-regex", config.GROUP_REGEX]
+    # skip if nothing changed since the last build (same settings, no newer keypoints): keeps trained models valid
+    stamp, out = work() / "prepared" / "build_command.txt", work() / "prepared" / "train.npz"
+    key = " ".join(map(str, cmd[1:]))
+    if not getattr(config, "RETRAIN", False) and stamp.exists() and stamp.read_text() == key and out.exists():
+        newest = max((f.stat().st_mtime for d in ("keypoints", "keypoints_test")
+                      for f in (work() / d).rglob("*.npz")), default=0)
+        if newest < out.stat().st_mtime:
+            print("Dataset already built with these settings, skipped.")
+            return
     run(cmd)
+    stamp.write_text(key)
 
 
-def step_train():
+def _up_to_date(runs: Path, m: str, inputs: list[Path]) -> bool:
+    """True if model m was already trained after its inputs last changed (resume after a disconnect)."""
+    if getattr(config, "RETRAIN", False):
+        return False
+    done = runs / f"{m}_val.json"
+    model = runs / f"{m}{'.joblib' if m in ML_MODELS else '.pt'}"
+    if not (done.exists() and model.exists()):
+        return False
+    return all(done.stat().st_mtime > p.stat().st_mtime for p in inputs if p.exists())
+
+
+def _write_if_changed(path: Path, text: str) -> None:
+    if not path.exists() or path.read_text() != text:  # keep the mtime, so finished stages are skipped
+        path.write_text(text)
+
+
+def _train_models(data: Path, runs: Path, extra: list) -> None:
     _, xgb_device = _device()
-    data, runs = work() / "prepared", work() / "runs"
+    inputs = [data / "train.npz"] + [Path(e) for e in extra if str(e).endswith(".json")]
     for m in config.MODELS:
+        if _up_to_date(runs, m, inputs):
+            print(f"  {m}: already trained for this data, skipped (config.RETRAIN = True to redo)", flush=True)
+            continue
         if m in ML_MODELS:
             cmd = [sys.executable, HERE / "train_ml.py", "--data", data, "--model", m, "--out", runs,
                    "--seed", config.SEED, "--n-estimators", config.ML_PARAMS.get("n_estimators", 500)]
@@ -206,7 +293,20 @@ def step_train():
                    "--batch", p["batch"], "--lr", p["lr"], "--workers-seed", config.SEED]
         else:
             raise SystemExit(f"Unknown model '{m}' in config.MODELS (use rf, xgb, lstm, gru, cnn).")
-        run(cmd)
+        run(cmd + extra)
+
+
+def step_train():
+    data = work() / "prepared"
+    if not two_stage():
+        _train_models(data, work() / "runs", [])
+        return
+    plan = json.loads(write_stages().read_text())
+    show_groups()
+    for name in plan["stages"]:
+        print(f"\n----- stage: {name} -----", flush=True)
+        stage_file = work() / "two_stage" / "stages" / f"{name}.json"
+        _train_models(data, work() / "two_stage" / "runs" / name, ["--stage", stage_file, "--extra-features"])
 
 
 def step_select():
@@ -218,8 +318,15 @@ def step_select():
                           "window": config.WINDOW, "stride": config.STRIDE, "min_conf": config.MIN_CONF},
         "data_dirs": config.DATA_DIRS, "test_dirs": config.TEST_DIRS,
     }, indent=2, ensure_ascii=False))
-    cmd = [sys.executable, HERE / "select_best.py", "--data", work() / "prepared", "--runs", work() / "runs",
-           "--out", work(), "--run-config", snapshot, "--models", *config.MODELS, "--select-by", config.SELECT_BY]
+    if two_stage():
+        cmd = [sys.executable, HERE / "select_two_stage.py", "--data", work() / "prepared",
+               "--plan", write_stages(), "--runs", work() / "two_stage" / "runs", "--single-runs", work() / "runs",
+               "--out", work(), "--run-config", snapshot, "--models", *config.MODELS,
+               "--select-by", config.SELECT_BY]
+    else:
+        cmd = [sys.executable, HERE / "select_best.py", "--data", work() / "prepared", "--runs", work() / "runs",
+               "--out", work(), "--run-config", snapshot, "--models", *config.MODELS,
+               "--select-by", config.SELECT_BY]
     if config.FORCE_MODEL:
         cmd += ["--force", config.FORCE_MODEL]
     for candidate in (REPO / config.POSE_MODEL, Path.cwd() / config.POSE_MODEL, Path(config.POSE_MODEL)):
@@ -236,7 +343,8 @@ def main(steps: list[str] | None = None) -> None:
         raise SystemExit(f"Unknown steps {bad}; choose from {STEPS}")
     resolve_classes()
     work().mkdir(parents=True, exist_ok=True)
-    print(f"Classes: {config.CLASSES}\nModels:  {config.MODELS}\nWork dir: {work()}")
+    print(f"Classes: {config.CLASSES}\nModels:  {config.MODELS}\nWork dir: {work()}\n"
+          f"Two-stage: {two_stage()}")
     for s in steps:
         print(f"\n{'=' * 20} {s} {'=' * 20}", flush=True)
         {"extract": step_extract, "build": step_build, "train": step_train, "select": step_select}[s]()

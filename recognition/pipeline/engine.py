@@ -24,6 +24,7 @@ from .types import ExerciseSpec, Feedback, FrameResult
 logger = logging.getLogger("recognition")
 
 FEATURE_WINDOW = 16
+SWITCH_FRAMES = 6  # frames a new exercise label must hold before the rep counter switches to it
 
 
 class RecognitionEngine:
@@ -78,14 +79,33 @@ class RecognitionEngine:
         )
         state["prediction_history"] = history
 
-        # Keep counting reps for the last confirmed exercise while the
-        # prediction is momentarily uncertain.
+        # Decide which exercise the rep counter follows. Switching resets the
+        # count, so it must not happen on a brief misclassification:
+        #  * if the user picked a target exercise, always count that one;
+        #  * in auto-detect mode, switch only after the new label has held for
+        #    SWITCH_FRAMES frames in a row and no rep is in progress.
         current = state.get("current_exercise")
+        target = context.get("target_exercise")
+        candidate = None
+        if target in self.specs:
+            candidate = target if target != current else None
+            state.pop("pending_exercise", None)
+        elif label and label != current and label in self.specs:
+            pending = state.get("pending_exercise") or {}
+            n = pending.get("frames", 0) + 1 if pending.get("label") == label else 1
+            state["pending_exercise"] = {"label": label, "frames": n}
+            mid_rep = (state.get("rep") or {}).get("moving", False)
+            if current not in self.specs or (n >= SWITCH_FRAMES and not mid_rep):
+                candidate = label
+        else:
+            state.pop("pending_exercise", None)
+
         changed = False
-        if label and label != current and label in self.specs:
-            current, changed = label, True
-            state["current_exercise"] = label
+        if candidate:
+            current, changed = candidate, True
+            state["current_exercise"] = candidate
             state["rep"] = rep_counter.RepState().to_dict()
+            state.pop("pending_exercise", None)
 
         events: list[Feedback] = []
         live: list[Feedback] = []
@@ -119,7 +139,6 @@ class RecognitionEngine:
             reps, good = rs.count, rs.good_count
             state["rep"] = rs.to_dict()
 
-        target = context.get("target_exercise")
         if target and label and label != target:
             live.append(Feedback("info", "mismatch",
                                  f"Detected {self.specs[label].name} but you selected {self.specs[target].name}."

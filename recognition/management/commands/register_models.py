@@ -27,7 +27,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--classifier", required=True,
-                            help="file in ml_models/: .pt (LSTM/GRU/CNN) or .joblib (RF/XGBoost)")
+                            help="file in ml_models/: .pt (LSTM/GRU/CNN), .joblib (RF/XGBoost) "
+                                 "or two_stage.json (two-stage bundle)")
         parser.add_argument("--classes", default="classes.json", help="classes.json from training (in ml_models/)")
         parser.add_argument("--pose", default="yolo11n-pose.pt", help="YOLO-pose weights in ml_models/")
         parser.add_argument("--model-version", default="1.0", dest="model_version")
@@ -51,8 +52,10 @@ class Command(BaseCommand):
             backend = "torchscript"
         elif clf_file.suffix == ".joblib":
             backend = "sklearn"
+        elif clf_file.suffix == ".json":
+            backend = "two_stage"
         else:
-            raise CommandError("Classifier must be a .pt (TorchScript) or .joblib file.")
+            raise CommandError("Classifier must be a .pt (TorchScript), .joblib or two_stage.json file.")
 
         if not pose_file.exists():
             self.stdout.write(f"Downloading {pose_file.name} ...")

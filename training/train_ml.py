@@ -20,7 +20,7 @@ import joblib
 import numpy as np
 from sklearn.utils.class_weight import compute_sample_weight
 
-from common import load_classes, load_split, report, save_report, window_stats
+from common import load_data, load_stage, report, save_report, window_stats
 
 
 def main():
@@ -33,11 +33,13 @@ def main():
     ap.add_argument("--device", default="cpu", help="xgb only: 'cuda' to train on GPU")
     ap.add_argument("--eval-test", action="store_true", help="also score the test set (do this once, at the end)")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--stage", type=Path, help="two-stage: JSON stage file written by run_all.py")
+    ap.add_argument("--extra-features", action="store_true", help="append the 13 extra features (42 -> 55)")
     args = ap.parse_args()
 
-    classes = load_classes(args.data)
-    Xtr, ytr, _, _ = load_split(args.data, "train")
-    Xva, yva, _, _ = load_split(args.data, "val")
+    stage, classes = load_stage(args.stage, args.data)
+    Xtr, ytr, _, _ = load_data(args.data, "train", stage, args.extra_features)
+    Xva, yva, _, _ = load_data(args.data, "val", stage, args.extra_features)
     Ftr, Fva = window_stats(Xtr), window_stats(Xva)
     weights = compute_sample_weight("balanced", ytr)
     print(f"train {Ftr.shape}, val {Fva.shape}, {len(classes)} classes")
@@ -63,7 +65,9 @@ def main():
     name = args.model
     args.out.mkdir(parents=True, exist_ok=True)
     model_file = args.out / f"{name}.joblib"
-    joblib.dump({"model": clf, "classes": classes, "input": "window_stats(16x42)->210"}, model_file)
+    n_feat = Xtr.shape[-1]
+    joblib.dump({"model": clf, "classes": classes, "input": f"window_stats(16x{n_feat})->{n_feat * 5}",
+                 "features": "extended" if args.extra_features else "base"}, model_file)
 
     # speed: one window at a time, like the website
     one = Fva[:1] if len(Fva) else Ftr[:1]
@@ -73,7 +77,8 @@ def main():
         clf.predict_proba(one)
     ms = (time.time() - t0) / 50 * 1000
     extra = {"model": name, "train_seconds": train_time, "ms_per_window": ms,
-             "size_mb": model_file.stat().st_size / 1e6}
+             "size_mb": model_file.stat().st_size / 1e6,
+             "features": "extended" if args.extra_features else "base"}
 
     rep = report(yva, clf.predict(Fva), classes)
     save_report(args.out, f"{name}_val", rep, classes, extra)
@@ -81,7 +86,7 @@ def main():
           f"{ms:.2f} ms/window  {extra['size_mb']:.1f} MB")
 
     if args.eval_test:
-        Xte, yte, _, _ = load_split(args.data, "test")
+        Xte, yte, _, _ = load_data(args.data, "test", stage, args.extra_features)
         rep = report(yte, clf.predict(window_stats(Xte)), classes)
         save_report(args.out, f"{name}_test", rep, classes, extra)
         print(f"[{name}] TEST accuracy {rep['accuracy']:.4f}  macro-F1 {rep['macro_f1']:.4f}")
