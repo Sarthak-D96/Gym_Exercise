@@ -19,10 +19,15 @@ ENV HOME=/home/app \
     RECOGNITION_INPUT_SIZE=640
 WORKDIR /app
 
-# CPU-only PyTorch (the version the model was trained with), then the rest
+# Slow or flaky downloads: wait longer and retry instead of failing the build
+ENV PIP_DEFAULT_TIMEOUT=180 \
+    PIP_RETRIES=10 \
+    PIP_NO_CACHE_DIR=1
+# CPU-only PyTorch (the version the model was trained with), in its own layer so it is
+# cached when only the other requirements change
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision
 COPY requirements.txt requirements-deploy.txt ./
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 torchvision \
-    && pip install --no-cache-dir -r requirements-deploy.txt
+RUN pip install -r requirements-deploy.txt
 
 COPY --chown=app:app . .
 # collectstatic doesn't touch the database; the dummy key is only for this build step

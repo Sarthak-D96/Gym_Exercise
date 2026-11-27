@@ -4,5 +4,5 @@
 gunicorn>=23
 # versions the deployed model was trained with (ml_models/gymrec_model_two_stage-*/model_card.json)
 scikit-learn==1.6.1
-xgboost==3.4.1
+xgboost-cpu==3.4.1   # CPU-only build: same `import xgboost`, without the 200 MB NVIDIA NCCL library
 ultralytics==8.4.218
