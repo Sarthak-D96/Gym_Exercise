@@ -49,18 +49,30 @@ Already set in the `Dockerfile` (override as variables if needed): `DJANGO_DEBUG
 
 ## 3. Push the code
 
-Create a **write** access token: huggingface.co → Settings → Access Tokens. Then, in the project:
+Hugging Face only accepts model files (`*.pt`, `*.joblib`) through Git LFS, while this repository
+keeps them as plain git files. `deploy/push_to_space.sh` pushes a one-commit snapshot of your
+current commit with the model files in LFS, replacing what the Space had. Your branches and
+GitHub history are not changed.
+
+One-time setup: install Git LFS (`brew install git-lfs`), create a **write** access token
+(huggingface.co → Settings → Access Tokens), and add the Space as a remote:
 
 ```bash
 git remote add space https://huggingface.co/spaces/<your-username>/gymrec
-git push space main
+```
+
+Then, for the first deploy and every update (commit first):
+
+```bash
+deploy/push_to_space.sh
 ```
 
 When git asks for a password, paste the access token. The Space builds the image (about
 10–15 minutes the first time: PyTorch, ultralytics) and starts it. Build and run logs are in the
-Space's **Logs** tab.
+Space's **Logs** tab. `DRY_RUN=1 deploy/push_to_space.sh` shows what would be pushed.
 
-Later updates: commit, then `git push space main` again (and `git push origin main` for GitHub).
+If the Space was created with another SDK (e.g. Static), the `sdk: docker` line at the top of
+`README.md` switches it; if it doesn't, change it under the Space's **Settings**.
 
 ## 4. Open it
 
@@ -78,7 +90,6 @@ seed_demo` on the laptop (it writes to Neon through `.env`).
 * **Speed:** CPU basic is slower than a laptop; the live page simply processes fewer frames per
   second. The rep counter is built for 3+ frames per second.
 * **New model:** install it locally (`install_model`, which also registers it in Neon), add its
-  folder to the `!ml_models/...` exceptions in `.gitignore` (and remove the old one), commit, push.
-* **Files over 10 MB** must go through Git LFS on Hugging Face (`git lfs track "*.joblib"`); the
-  current model's largest file is 8.4 MB.
+  folder to the `!ml_models/...` exceptions in `.gitignore` (and remove the old one), commit, then
+  run `deploy/push_to_space.sh`.
 * **Never** commit `.env`: the secrets above are the only place the database password belongs.
