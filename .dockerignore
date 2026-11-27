@@ -22,3 +22,5 @@ ml_models/gymrec_model_cnn-*
 
 # Cloud Run settings with secrets
 deploy/cloudrun.env.yaml
+deploy/tunnel.secret
+deploy/tunnel*.log

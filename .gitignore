@@ -17,3 +17,7 @@ node_modules/
 
 # Cloud Run settings with secrets (see deploy/cloudrun.env.example.yaml)
 deploy/cloudrun.env.yaml
+
+# Cloudflare tunnel sharing (deploy/share_with_tunnel.sh)
+deploy/tunnel.secret
+deploy/tunnel*.log

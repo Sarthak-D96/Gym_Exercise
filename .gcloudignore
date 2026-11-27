@@ -21,3 +21,5 @@ runs/
 ml_models/*.pt
 ml_models/*.json
 ml_models/gymrec_model_cnn-*
+deploy/tunnel.secret
+deploy/tunnel*.log
