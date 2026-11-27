@@ -28,12 +28,13 @@
     {% if session.records.all %}
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>Exercise</th><th class="num">Reps</th><th class="num">Good form</th><th class="num">Confidence</th><th class="num">Time</th></tr></thead>
+        <thead><tr><th>Exercise</th><th class="num">Reps</th><th class="num">Not counted</th><th class="num">Form score</th><th class="num">Confidence</th><th class="num">Time</th></tr></thead>
         <tbody>
         {% for r in session.records.all %}
           <tr>
             <td>{{ r.exercise.icon }} {{ r.exercise.name }}</td>
             <td class="num">{{ r.repetitions }}</td>
+            <td class="num">{{ r.rejected_reps }}</td>
             <td class="num">{% if r.form_score is not None %}{{ r.form_score }}%{% else %}–{% endif %}</td>
             <td class="num">{{ r.avg_confidence|percent }}</td>
             <td class="num mono">{{ r.duration_seconds|duration }}</td>

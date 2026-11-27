@@ -61,7 +61,7 @@ def _params(slug: str, p: float, fault: str | None) -> dict:
     if slug == "squat":
         depth = 112 if fault == "shallow" else 82
         base.update(knee=_lerp(174, depth, p), shoulder=_lerp(10, 80, p),
-                    lean=_lerp(3, 38 if fault == "lean" else 12, p))
+                    lean=_lerp(3, 58 if fault == "lean" else 12, p))
     elif slug == "lunge":
         base.update(knee=_lerp(174, 88, p), lean=_lerp(3, 34 if fault == "lean" else 8, p))
     elif slug == "push_up":

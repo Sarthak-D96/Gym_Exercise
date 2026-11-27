@@ -40,6 +40,46 @@ P(exercise) = P(group) × P(exercise | group)
 
 Set `TWO_STAGE = False` for the original single-model setup.
 
+## Improving the score (settings in gym_config.py, all on by default)
+
+The first two-stage run scored 0.956 on validation but 0.621 on test. In every stage every model type
+scored 0.94–1.00 on validation, so validation couldn't tell them apart, and early stopping rewarded
+memorisation. The main suspect is clips of one source video landing in both train and validation.
+
+| Setting | What it does | Why |
+|---|---|---|
+| `GROUP_BY = "auto"` | groups clips by camera framing + body proportions (`build_dataset.auto_groups`); `summary.json` lists the groups | honest validation → meaningful model choice and early stopping. On synthetic clips: 62/80 source videos leaked with per-file splits, 0 with auto |
+| `AUGMENT = "strong"` | camera yaw/pitch squash, ±15° rotation, corrupted keypoints, dropped frames | the dataset's test videos are noisier / filmed differently |
+| `AUGMENT_COPIES = 1` | augmented copies of the training windows for RF / XGBoost | trees had no augmentation at all |
+| `ENSEMBLE_MAX = 2` | per stage, average the top-2 model types if validation improves | ensembles of different model types usually generalise better; the website averages them too |
+
+`results.md` now also reports the test accuracy after the website's 8-window majority vote and per
+video. Those describe what the app shows; the per-window number stays the model's score.
+Every exported model is appended to `WORK_DIR/score_history.json` (shown in `results.md`) for the journal.
+
+Not done, but worth trying next: merging look-alike classes (deadlift + RDL, the three bench presses,
+hammer + bicep curl). From the confusions of the first run that alone fixes at least 100 of the 836 wrong
+test windows (≥ +4.5 points), but it changes what the app can tell apart.
+
+## Form grading learned from the dataset (step `profiles`)
+
+The dataset has no good/bad-form labels, but its videos demonstrate each exercise. `build_form_profiles.py`
+replays every training video through the website's own rep counter and form measurements
+(`recognition/pipeline/rep_counter.py`, `posture.py`) and writes `WORK_DIR/form_profiles.json`:
+
+* **Calibrated rep angles:** per exercise, the median over videos of the lowest and highest joint angle
+  (10th/90th percentile per video). Applied only if they are at least 25° apart and within 35° of
+  `gym_config.py`'s values.
+* **Normal ranges per rep:** depth, lockout, tempo, torso lean, hip line, elbow drift and left/right symmetry.
+  The website grades with Tukey's fence (p75 + 1.5 IQR, capped at p95; mirrored for "too low"), so a
+  minority of sloppy reps in the dataset doesn't widen what counts as normal.
+* **Check on the held-out videos:** how many of their reps would be good, minor (counted with a tip) or
+  not counted. They are demonstrations, so "not counted" there is mostly false rejection.
+
+`run_all.main()` runs it after `build`, and model zips include it, so `install_model` installs it too.
+Profiles only, without retraining: `training/colab_form_profiles.ipynb`, then
+`python manage.py install_form_profiles form_profiles.json`.
+
 The sections below run the same scripts by hand.
 
 ---

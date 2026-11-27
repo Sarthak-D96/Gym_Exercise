@@ -37,7 +37,9 @@ class RecognitionEngine:
         input_size: int = 256,
         smoothing_window: int = 8,
         min_confidence: float = 0.6,
+        count_only_good_form: bool = True,
     ):
+        self.count_only_good_form = count_only_good_form
         self.specs = specs
         self.pose_detector = pose_detector
         self.classifier = classifier
@@ -109,34 +111,43 @@ class RecognitionEngine:
 
         events: list[Feedback] = []
         live: list[Feedback] = []
-        reps = good = 0
+        reps = good = rejected = 0
+        points = 0.0
         completed = False
         angle = None
         progress = 0.0
+        last_rep = None
 
         if current in self.specs:
             spec = self.specs[current]
             rs = rep_counter.RepState.from_dict(state.get("rep"))
 
-            # 6/7 Posture analysis (frame-level)
-            live = posture.analyze(current, pose.keypoints)
-            if rs.moving:
-                for issue in live:
-                    if issue.code not in rs.rep_issues:
-                        rs.rep_issues.append(issue.code)
-                        events.append(issue)
-
-            # 5 Repetition counting
-            upd = rep_counter.update(spec, rs, pose.keypoints)
+            # 5 Repetition counting + 6/7 form grading of each finished rep
+            upd = rep_counter.update(spec, rs, pose.keypoints, timestamp_ms, strict=self.count_only_good_form)
             angle, progress, completed = upd.angle, upd.progress, upd.completed
-            if upd.completed:
-                if upd.good_form:
-                    events.append(Feedback("good", "good_rep", f"Rep {rs.count} — good form!"))
+
+            # live cues while moving (or always, for holds like the plank)
+            if upd.moving or posture.is_static(spec):
+                for issue in posture.live_issues(spec, upd.frame):
+                    live.append(issue.feedback())
+                    if issue.code not in rs.live_codes:  # log each problem once per rep
+                        rs.live_codes.append(issue.code)
+                        events.append(issue.feedback())
+
+            g = upd.grade
+            if g is not None:
+                last_rep = {"score": g.score, "severity": g.severity, "counted": upd.completed}
+                if upd.completed and g.severity == "good":
+                    events.append(Feedback("good", "good_rep", f"Rep {rs.count}: good form! ({g.score}/100)"))
+                elif upd.completed:
+                    tips = " ".join(i.message for i in g.issues[:2])
+                    events.append(Feedback("info", "rep_with_issues", f"Rep {rs.count} counted ({g.score}/100). {tips}"))
                 else:
-                    events.append(Feedback("info", "rep_with_issues", f"Rep {rs.count} counted — watch your form."))
-            elif upd.partial:
-                events.append(posture.partial_rep_feedback(current))
-            reps, good = rs.count, rs.good_count
+                    fixes = " ".join(i.message for i in g.issues if i.severity == "major")
+                    what = "Partial rep" if upd.partial else "Rep"
+                    events.append(Feedback("warning", "rep_rejected", f"{what} not counted. {fixes}"))
+                    live = [i.feedback() for i in g.issues[:2]] + live
+            reps, good, rejected, points = rs.count, rs.good_count, rs.rejected, rs.points
             state["rep"] = rs.to_dict()
 
         if target and label and label != target:
@@ -160,6 +171,9 @@ class RecognitionEngine:
             live_feedback=live,
             events=events,
             simulated=simulated,
+            rejected_reps=rejected,
+            form_points=points,
+            last_rep=last_rep,
         )
         return result, state
 
@@ -170,5 +184,5 @@ class RecognitionEngine:
             raw_exercise=None, raw_confidence=0.0, exercise_changed=False, reps=rs.count,
             good_reps=rs.good_count, rep_completed=False, angle=None, progress=0.0,
             live_feedback=[Feedback("info", "no_pose", "Step into the frame so your whole body is visible.")],
-            events=[], simulated=simulated,
+            events=[], simulated=simulated, rejected_reps=rs.rejected, form_points=rs.points,
         )

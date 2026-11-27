@@ -73,6 +73,11 @@ class Command(BaseCommand):
             stdout=self.stdout,
         )
 
+        if (folder / "form_profiles.json").exists():
+            self.stdout.write("Form grading learned from the dataset:")
+            call_command("install_form_profiles", str(folder / "form_profiles.json"), stdout=self.stdout,
+                         keep_angles=keep_exercise_settings)
+
         m = card.get("metrics", {})
         if "accuracy" in m:
             self.stdout.write(self.style.SUCCESS(

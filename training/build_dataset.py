@@ -8,8 +8,13 @@ Reads the .npz files from extract_keypoints.py and writes to --out:
     summary.json                   counts per split / class, dropped videos
 
 The split is done per video (never per frame or per window), stratified by class.
-Clips cut from one source video must stay together: if their names show that
-(e.g. 'squat_12_part3'), pass --group-regex so they share one group.
+Clips cut from one source video must stay together, or validation measures memory
+instead of recognition. Two ways:
+  --group-regex   when the file names show it (e.g. 'squat_12_part3')
+  --group-by auto when they don't: clips of one source video share the camera
+                  framing and the person's body proportions, so videos whose
+                  "framing signature" is nearly identical are put in one group
+                  (see auto_groups(); summary.json lists the groups found).
 
 Example:
     python training/build_dataset.py --keypoints /data/gym/keypoints --out /data/gym/prepared
@@ -107,6 +112,77 @@ def load_dir(root: Path, args, aliases):
     return videos, dropped
 
 
+# ---------------------------------------------------------------- automatic grouping
+SEGMENTS = [(5, 7), (7, 9), (6, 8), (8, 10), (11, 13), (13, 15), (12, 14), (14, 16)]  # arms, legs (COCO idx)
+
+
+def signature(kp: np.ndarray) -> np.ndarray | None:
+    """
+    Camera framing + body proportions of one video, from its windows (N, T, 17, 3):
+    median hip position, torso length, shoulder / hip width and limb lengths (in torso
+    lengths), keypoint bounding box. Stable inside one source video, different across videos.
+    """
+    f = kp.reshape(-1, 17, 3)
+    f = f[np.isfinite(f).all((1, 2))]
+    if len(f) < 4:
+        return None
+    xy = f[..., :2]
+    hip, sh = xy[:, 11:13].mean(1), xy[:, 5:7].mean(1)
+    torso = np.linalg.norm(sh - hip, axis=-1)
+    ok = torso > 1e-3
+    if ok.sum() < 4:
+        return None
+    xy, hip, torso = xy[ok], hip[ok], torso[ok]
+    seg = [np.linalg.norm(xy[:, a] - xy[:, b], axis=-1) / torso for a, b in SEGMENTS]
+    width = [np.linalg.norm(xy[:, 5] - xy[:, 6], axis=-1) / torso, np.linalg.norm(xy[:, 11] - xy[:, 12], axis=-1) / torso]
+    box = xy.max(1) - xy.min(1)
+    cols = [hip[:, 0], hip[:, 1], torso, box[:, 0], box[:, 1], *width, *seg]
+    return np.array([np.median(c) for c in cols], dtype=np.float64)
+
+
+def auto_groups(videos, threshold=0.6, max_share=0.25):
+    """
+    Within each class, link videos whose signatures are within `threshold` (Euclidean
+    distance after scaling every column by its spread across all videos), and take
+    connected components as groups. If a class's biggest group would hold more than
+    `max_share` of its videos, the threshold is lowered for that class, so the split
+    can still be stratified. Returns {video id: group id}.
+    """
+    sigs = {v["id"]: signature(v["windows"]) for v in videos}
+    known = np.array([s for s in sigs.values() if s is not None])
+    scale = np.maximum(np.subtract(*np.percentile(known, [75, 25], axis=0)), 1e-6) if len(known) else 1.0
+    by_class = defaultdict(list)
+    for v in videos:
+        by_class[v["label"]].append(v["id"])
+    out = {}
+    for label, ids in by_class.items():
+        ids = sorted(ids)
+        S = np.array([sigs[i] / scale if sigs[i] is not None else np.full(len(scale), np.nan) for i in ids])
+        D = np.sqrt(np.nansum((S[:, None] - S[None]) ** 2, -1))
+        D[np.isnan(S).any(1)] = np.inf
+        D[:, np.isnan(S).any(1)] = np.inf
+        t = threshold
+        while True:
+            parent = list(range(len(ids)))
+
+            def find(a):
+                while parent[a] != a:
+                    parent[a] = parent[parent[a]]
+                    a = parent[a]
+                return a
+
+            for a, b in zip(*np.nonzero(np.triu(D < t, 1))):
+                parent[find(a)] = find(b)
+            roots = [find(a) for a in range(len(ids))]
+            biggest = max(Counter(roots).values())
+            if biggest <= max(2, max_share * len(ids)) or t < 0.05:
+                break
+            t *= 0.7
+        for i, r in zip(ids, roots):
+            out[i] = f"{label}/auto{r}"
+    return out
+
+
 def split_groups(videos, val_frac, test_frac, seed):
     rng = np.random.default_rng(seed)
     by_class = defaultdict(list)
@@ -146,6 +222,9 @@ def main():
     ap.add_argument("--test", type=float, default=0.15)
     ap.add_argument("--group-regex", default=None,
                     help=r"regex whose group(1) is the source-video id, e.g. '^(.*)_part\d+$'")
+    ap.add_argument("--group-by", choices=["file", "auto"], default="file",
+                    help="auto: group clips of the same source video by their framing signature")
+    ap.add_argument("--group-threshold", type=float, default=0.6)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
@@ -156,6 +235,19 @@ def main():
     videos, dropped = load_dir(args.keypoints, args, aliases)
     if not videos:
         raise SystemExit("No usable videos found.")
+    groups_info = None
+    if args.group_by == "auto" and not args.group_regex:
+        found = auto_groups(videos, args.group_threshold)
+        for v in videos:
+            v["group"] = found[v["id"]]
+        sizes = Counter(found.values())
+        multi = {g: [v["id"] for v in videos if v["group"] == g] for g, n in sizes.items() if n > 1}
+        groups_info = {"videos": len(videos), "groups": len(sizes), "multi_video_groups": len(multi),
+                       "examples": {g: ids[:6] for g, ids in list(multi.items())[:15]}}
+        print(f"Auto-grouping: {len(videos)} videos -> {len(sizes)} source-video groups "
+              f"({len(multi)} with several clips). Examples:")
+        for g, ids in list(multi.items())[:6]:
+            print(f"  {g}: {', '.join(Path(i).name for i in ids[:5])}")
     if args.test_keypoints:
         test_videos, d2 = load_dir(args.test_keypoints, args, aliases)
         dropped.update({f"test_{k}": v for k, v in d2.items()})
@@ -181,7 +273,7 @@ def main():
 
     args.out.mkdir(parents=True, exist_ok=True)
     summary = {"settings": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
-               "dropped_videos": dict(dropped), "splits": {}}
+               "dropped_videos": dict(dropped), "splits": {}, "auto_groups": groups_info}
     for split in ("train", "val", "test"):
         vs = [v for v in videos if v["split"] == split]
         if not vs:

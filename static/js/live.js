@@ -197,6 +197,12 @@
     // Reps
     $("reps").textContent = r.reps;
     $("good-reps").textContent = r.good_reps;
+    $("rejected-reps").textContent = r.rejected_reps || 0;
+    if (r.last_rep) {
+      const lr = $("last-rep");
+      lr.textContent = r.last_rep.counted ? `${r.last_rep.score}/100` : "not counted";
+      lr.className = "mono " + { good: "text-good", minor: "text-info", major: "text-warn" }[r.last_rep.severity];
+    }
     $("angle").textContent = r.angle == null ? "–" : `${r.angle}°`;
     $("total-reps").textContent = r.session.total_reps;
     $("rom-bar").style.height = `${Math.round(r.progress * 100)}%`;

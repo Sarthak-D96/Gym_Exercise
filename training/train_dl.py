@@ -2,7 +2,8 @@
 
 Adam 1e-3, batch 64, class-weighted loss, early stopping on validation macro-F1.
 Augmentation (training only) is applied to the raw keypoints, then features are
-recomputed: left/right mirror, small rotation, keypoint noise, time stretch.
+recomputed (common.augment): left/right mirror, rotation, keypoint noise, time stretch,
+and with --augment strong also camera yaw/scale, corrupted keypoints and dropped frames.
 
 Exports a TorchScript file that takes (batch, T, 42) and returns logits, which
 is what ml_models/README.md expects (T may be shorter than 16 in the website).
@@ -24,7 +25,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from common import FEATURE_SIZE, FLIP_PERM, extend_features, features_np, load_data, load_stage, report, save_report
+from common import FEATURE_SIZE, augment, extend_features, features_np, load_data, load_stage, report, save_report
 
 
 # ---------------------------------------------------------------- models
@@ -69,31 +70,6 @@ def build(name, n_classes, hidden, in_dim=FEATURE_SIZE):
     return TCNClassifier(n_classes, channels=hidden, in_dim=in_dim)
 
 
-# ---------------------------------------------------------------- augmentation
-def augment(kp: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    """kp: (B, T, 17, 3) -> augmented copy (B, T, 17, 3)."""
-    kp = kp.copy()
-    B, T = kp.shape[:2]
-    flip = rng.random(B) < 0.5
-    kp[flip] = kp[flip][:, :, FLIP_PERM]
-    kp[flip, :, :, 0] = 1.0 - kp[flip, :, :, 0]
-    # rotate about the hip centre by up to ±10°
-    th = np.radians(rng.uniform(-10, 10, B))[:, None, None]
-    c = kp[:, :, 11:13, :2].mean(2, keepdims=True)
-    x, y = kp[..., 0] - c[..., 0], kp[..., 1] - c[..., 1]
-    kp[..., 0] = c[..., 0] + x * np.cos(th) - y * np.sin(th)
-    kp[..., 1] = c[..., 1] + x * np.sin(th) + y * np.cos(th)
-    # keypoint jitter
-    kp[..., :2] += rng.normal(0, 0.005, kp[..., :2].shape)
-    # time stretch ±20 % (resample T frames from a stretched/squeezed span)
-    for i in np.flatnonzero(rng.random(B) < 0.5):
-        span = T * rng.uniform(0.8, 1.2)
-        start = rng.uniform(0, max(T - span, 0)) if span < T else 0.0
-        src = np.clip(np.round(start + np.linspace(0, span - 1, T)).astype(int), 0, T - 1)
-        kp[i] = kp[i, src]
-    return kp
-
-
 # ---------------------------------------------------------------- training
 @torch.no_grad()
 def predict(model, X, device, bs=512):
@@ -115,6 +91,8 @@ def main():
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--no-augment", action="store_true")
+    ap.add_argument("--augment", choices=["basic", "strong"], default="basic",
+                    help="strong: also camera yaw/scale, bigger rotation, corrupted keypoints, dropped frames")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else
                     "mps" if torch.backends.mps.is_available() else "cpu")
     ap.add_argument("--workers-seed", type=int, default=42, dest="seed")
@@ -150,7 +128,7 @@ def main():
         total, t0 = 0.0, time.time()
         for s in range(0, len(order), args.batch):
             b = order[s:s + args.batch]
-            xb = Xtr[b] if args.no_augment else featurize(augment(KPtr[b], rng))
+            xb = Xtr[b] if args.no_augment else featurize(augment(KPtr[b], rng, args.augment))
             xb = torch.from_numpy(xb).to(args.device)
             yb = torch.from_numpy(ytr[b]).to(args.device)
             opt.zero_grad()

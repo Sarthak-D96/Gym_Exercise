@@ -28,7 +28,8 @@ from pathlib import Path
 
 import numpy as np
 
-from common import load_classes, load_split, report, save_report, window_stats
+from common import (append_history, history_table, load_classes, load_split, report, save_report,
+                    smoothed_accuracy, window_stats)
 
 NAMES = {"rf": "Random Forest", "xgb": "XGBoost", "lstm": "LSTM", "gru": "GRU", "cnn": "1D-CNN / TCN"}
 SUFFIX = {"rf": ".joblib", "xgb": ".joblib", "lstm": ".pt", "gru": ".pt", "cnn": ".pt"}
@@ -97,6 +98,8 @@ def main():
     ap.add_argument("--models", nargs="*", default=list(NAMES))
     ap.add_argument("--select-by", choices=["macro_f1", "accuracy"], default="macro_f1")
     ap.add_argument("--force", choices=list(NAMES), help="ship this model regardless of scores")
+    ap.add_argument("--settings", default="", help="short description of this run for score_history.json")
+    ap.add_argument("--form-profiles", type=Path, help="form_profiles.json from build_form_profiles.py, shipped in the zip")
     ap.add_argument("--pose-weights", type=Path, help="YOLO-pose .pt used for extraction, copied into the zip")
     args = ap.parse_args()
 
@@ -129,10 +132,12 @@ def main():
           f"({best['val'][args.select_by]:.4f})" + (" [forced]" if args.force else ""))
 
     # ---- 2. test every model once
-    Xte, yte, _, _ = load_split(args.data, "test")
+    Xte, yte, _, vte = load_split(args.data, "test")
     if len(yte):
         for r in rows:
-            rep = report(yte, predict(r["file"], Xte, len(classes)), classes)
+            pred = predict(r["file"], Xte, len(classes))
+            rep = report(yte, pred, classes)
+            r["smoothed"] = smoothed_accuracy(pred, yte, vte)
             extra = {k: r["raw"][k] for k in ("model", "ms_per_window", "ms_per_window_cpu", "size_mb")
                      if k in r["raw"]}
             save_report(args.runs, f"{r['model']}_test", rep, classes, extra)
@@ -174,6 +179,13 @@ def main():
         if top:
             results.append("Most confused (true → predicted): " +
                            ", ".join(f"{classes[i]} → {classes[j]} ({cm[i, j]})" for i, j in top))
+    if best.get("test"):
+        hist = append_history(args.out, {
+            "id": model_id, "approach": f"single {best['model']}", "settings": args.settings,
+            "test_accuracy": best["test"]["accuracy"], "test_macro_f1": best["test"]["macro_f1"],
+            "test_smoothed_accuracy": best.get("smoothed"), "val_accuracy": best["val"]["accuracy"]})
+        results += ["", f"Test accuracy after the website's 8-window majority vote: {best['smoothed']:.3f}", "",
+                    "Score history (WORK_DIR/score_history.json):", "", *history_table(hist)]
     (bundle_dir / "results.md").write_text("\n".join(results) + "\n")
 
     card = {
@@ -192,6 +204,9 @@ def main():
         "library_versions": versions(),
         "data": {k: run_cfg[k] for k in ("data_dirs", "test_dirs") if k in run_cfg},
     }
+    if args.form_profiles and args.form_profiles.exists():
+        shutil.copy2(args.form_profiles, bundle_dir / "form_profiles.json")
+        card["form_profiles"] = "form_profiles.json"
     (bundle_dir / "model_card.json").write_text(json.dumps(card, indent=2, ensure_ascii=False))
 
     zip_path = args.out / f"gymrec_model_{model_id}.zip"

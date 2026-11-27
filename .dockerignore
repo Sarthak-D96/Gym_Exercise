@@ -1,0 +1,21 @@
+# never ship local secrets or environments
+.env
+.env.*
+!.env.example
+.neon
+.venv/
+node_modules/
+.git/
+__pycache__/
+*.pyc
+staticfiles/
+media/
+.DS_Store
+.claude/
+# training data / notebooks aren't needed to run the site
+training/
+runs/
+# only the deployed model folder is needed (see .gitignore)
+ml_models/*.pt
+ml_models/*.json
+ml_models/gymrec_model_cnn-*

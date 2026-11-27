@@ -6,6 +6,11 @@ staticfiles/
 media/
 ml_models/*
 !ml_models/README.md
+# the deployed model ships with the code (Docker image / Hugging Face Space); see DEPLOY.md
+!ml_models/gymrec_model_two_stage-20261125-1933/
 .DS_Store
 runs/
 yolo*.pt
+!ml_models/gymrec_model_two_stage-20261125-1933/yolo11n-pose.pt
+.neon
+node_modules/

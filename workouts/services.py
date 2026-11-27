@@ -63,6 +63,8 @@ def process_frame(session_id: int, user, frame_data: str | None, timestamp_ms: f
         if record is not None:
             record.repetitions = result.reps
             record.good_form_reps = result.good_reps
+            record.rejected_reps = result.rejected_reps
+            record.form_points = result.form_points
             if result.confidence:
                 record.add_confidence(result.confidence)
             record.save()
@@ -105,7 +107,7 @@ def _current_record(session: WorkoutSession, result) -> WorkoutRecord | None:
     if open_record:
         open_record.ended_at = now
         open_record.save(update_fields=["ended_at"])
-        if open_record.repetitions == 0:
+        if open_record.attempts == 0:
             open_record.delete()  # drop blocks where nothing was done (e.g. brief misclassification)
     exercise = Exercise.objects.get(slug=result.exercise)
     return WorkoutRecord.objects.create(session=session, exercise=exercise, started_at=now)
@@ -121,12 +123,14 @@ def session_summary(session: WorkoutSession) -> dict:
         "duration_seconds": round(session.duration_seconds, 1),
         "frames_processed": session.frames_processed,
         "total_reps": sum(r.repetitions for r in records),
+        "total_rejected": sum(r.rejected_reps for r in records),
         "records": [
             {
                 "exercise": r.exercise.slug,
                 "exercise_name": r.exercise.name,
                 "repetitions": r.repetitions,
                 "good_form_reps": r.good_form_reps,
+                "rejected_reps": r.rejected_reps,
                 "form_score": r.form_score,
                 "avg_confidence": round(r.avg_confidence, 3),
                 "duration_seconds": round(r.duration_seconds, 1),

@@ -133,6 +133,11 @@ TEST_FRACTION = 0.15             # only used when TEST_DIRS is empty
 # Regex whose group(1) is the source-video id, so clips cut from one video stay
 # in the same split. Check the file names first. None = every file is its own video.
 GROUP_REGEX = None
+# Without a GROUP_REGEX, "auto" groups clips of the same source video by their camera
+# framing and body proportions (build_dataset.auto_groups), so validation scores are
+# honest and model selection / early stopping mean something. "file" = every file is
+# its own video (the old behaviour; validation is then usually far too optimistic).
+GROUP_BY = "auto"
 SEED = 42
 
 # ---------------------------------------------------------------------------
@@ -148,6 +153,17 @@ FORCE_MODEL = None        # e.g. "lstm" to ship that model regardless of scores
 RETRAIN = False
 
 ML_PARAMS = {"n_estimators": 500}
+
+# Robustness to the noisier test videos:
+#   AUGMENT          "strong" adds camera yaw/scale, corrupted keypoints, dropped frames
+#                    to the deep models' augmentation ("basic": mirror, rotation, jitter, time stretch)
+#   AUGMENT_COPIES   augmented copies of the training windows added for RF / XGBoost (0 = none)
+AUGMENT = "strong"
+AUGMENT_COPIES = 1
+# Per stage, also try averaging the probabilities of the top 2..N model types and keep
+# the ensemble if validation improves. 1 = single best model only. Each extra model adds
+# its time per window on the website.
+ENSEMBLE_MAX = 2
 DL_PARAMS = {"hidden": 128, "epochs": 100, "patience": 10, "batch": 64, "lr": 1e-3}
 
 # ---------------------------------------------------------------------------

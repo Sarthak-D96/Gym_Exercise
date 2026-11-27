@@ -1,6 +1,17 @@
+---
+title: GymRec
+emoji: 🏋️
+colorFrom: green
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: Gym exercise recognition, rep counting and form feedback
+---
+
 # GymRec — Gym Exercise Recognition System (prototype)
 
-UCS503 Software Engineering project prototype: a web app that recognises the exercise you're doing
+UCS503 Software Engineering project prototype (deployment: see [DEPLOY.md](DEPLOY.md)): a web app that recognises the exercise you're doing
 from the camera, counts repetitions, gives posture feedback, and stores your workout history.
 
 **Stack:** Django (backend and server-rendered UI), PostgreSQL (database), vanilla JS with Chart.js (frontend).

@@ -1,0 +1,74 @@
+{
+  "features": "extended",
+  "groups": {
+    "arms": {
+      "file": "arms.joblib",
+      "model": "rf",
+      "backend": "sklearn",
+      "classes": [
+        "bicep_curl",
+        "hammer_curl",
+        "lateral_raise",
+        "tricep_pushdown"
+      ]
+    },
+    "core": {
+      "file": "core.pt",
+      "model": "lstm",
+      "backend": "torchscript",
+      "classes": [
+        "leg_raises",
+        "plank",
+        "russian_twist"
+      ]
+    },
+    "legs": {
+      "file": "legs.pt",
+      "model": "cnn",
+      "backend": "torchscript",
+      "classes": [
+        "deadlift",
+        "hip_thrust",
+        "leg_extension",
+        "romanian_deadlift",
+        "squat"
+      ]
+    },
+    "press": {
+      "file": "press.pt",
+      "model": "cnn",
+      "backend": "torchscript",
+      "classes": [
+        "bench_press",
+        "chest_fly_machine",
+        "decline_bench_press",
+        "incline_bench_press",
+        "push_up",
+        "shoulder_press",
+        "tricep_dips"
+      ]
+    },
+    "pull": {
+      "file": "pull.pt",
+      "model": "lstm",
+      "backend": "torchscript",
+      "classes": [
+        "lat_pulldown",
+        "pull_up",
+        "t_bar_row"
+      ]
+    }
+  },
+  "router": {
+    "file": "router.joblib",
+    "model": "xgb",
+    "backend": "sklearn",
+    "classes": [
+      "arms",
+      "core",
+      "legs",
+      "press",
+      "pull"
+    ]
+  }
+}

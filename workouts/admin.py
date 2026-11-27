@@ -33,7 +33,7 @@ class WorkoutSessionAdmin(admin.ModelAdmin):
 
 @admin.register(WorkoutRecord)
 class WorkoutRecordAdmin(admin.ModelAdmin):
-    list_display = ("session", "exercise", "repetitions", "good_form_reps", "avg_confidence", "started_at")
+    list_display = ("session", "exercise", "repetitions", "good_form_reps", "rejected_reps", "avg_confidence", "started_at")
     list_filter = ("exercise",)
 
 

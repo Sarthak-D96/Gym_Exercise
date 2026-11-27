@@ -1,6 +1,7 @@
 Django>=5.1,<7
 psycopg[binary]>=3.2
 Pillow>=10
+whitenoise>=6.8      # static files when DJANGO_DEBUG=false
 # --- trained models (see ml_models/README.md) ---
 numpy>=1.26
 ultralytics>=8.3      # YOLO-pose; also installs torch, used by the .pt classifiers

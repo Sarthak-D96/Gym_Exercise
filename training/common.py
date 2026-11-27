@@ -45,6 +45,50 @@ FLIP_PERM = np.array([
 ])
 
 
+def augment(kp: np.ndarray, rng: np.random.Generator, strength: str = "basic") -> np.ndarray:
+    """
+    kp: (B, T, 17, 3) -> augmented copy. Applied to raw keypoints, features are recomputed after.
+
+    basic   left/right mirror, rotation ±10°, keypoint jitter, time stretch ±20 %
+    strong  + camera yaw (horizontal squash 0.65..1) and pitch (vertical 0.85..1.1), rotation ±15°,
+              more jitter, 1-3 keypoints per window replaced by wrong positions in some frames
+              (YOLO-pose mistakes on blurry / occluded frames), dropped-and-repeated frames
+    The dataset's test videos are noisier and filmed differently from its training videos;
+    "strong" trains for that.
+    """
+    kp = kp.copy()
+    B, T = kp.shape[:2]
+    strong = strength == "strong"
+    flip = rng.random(B) < 0.5
+    kp[flip] = kp[flip][:, :, FLIP_PERM]
+    kp[flip, :, :, 0] = 1.0 - kp[flip, :, :, 0]
+    c = kp[:, :, 11:13, :2].mean(2, keepdims=True)  # hip centre per frame
+    x, y = kp[..., 0] - c[..., 0], kp[..., 1] - c[..., 1]
+    if strong:  # camera yaw / pitch: the body looks narrower / shorter
+        x = x * rng.uniform(0.65, 1.0, B)[:, None, None]
+        y = y * rng.uniform(0.85, 1.1, B)[:, None, None]
+    lim = 15 if strong else 10
+    th = np.radians(rng.uniform(-lim, lim, B))[:, None, None]
+    kp[..., 0] = c[..., 0] + x * np.cos(th) - y * np.sin(th)
+    kp[..., 1] = c[..., 1] + x * np.sin(th) + y * np.cos(th)
+    kp[..., :2] += rng.normal(0, 0.01 if strong else 0.005, kp[..., :2].shape)
+    if strong:
+        for i in np.flatnonzero(rng.random(B) < 0.3):  # corrupted keypoints
+            joints = rng.choice(17, size=rng.integers(1, 4), replace=False)
+            frames = rng.random(T) < rng.uniform(0.2, 0.6)
+            for j in joints:
+                kp[i, frames, j, :2] = kp[i, frames, j, :2] + rng.normal(0, 0.08, (frames.sum(), 2))
+        for i in np.flatnonzero(rng.random(B) < 0.3):  # dropped frames (repeat the previous one)
+            for t in np.flatnonzero(rng.random(T - 1) < 0.15) + 1:
+                kp[i, t] = kp[i, t - 1]
+    for i in np.flatnonzero(rng.random(B) < 0.5):  # time stretch ±20 %
+        span = T * rng.uniform(0.8, 1.2)
+        start = rng.uniform(0, max(T - span, 0)) if span < T else 0.0
+        src = np.clip(np.round(start + np.linspace(0, span - 1, T)).astype(int), 0, T - 1)
+        kp[i] = kp[i, src]
+    return kp
+
+
 def features_np(kp: np.ndarray) -> np.ndarray:
     """kp: (..., 17, 2+) normalised x,y -> (..., 42) features, same as features.extract_features."""
     xy = kp[..., :2].astype(np.float64)
@@ -149,6 +193,55 @@ def report(y_true, y_pred, classes) -> dict:
                                            output_dict=True, zero_division=0),
         "confusion_matrix": confusion_matrix(y_true, y_pred, labels=labels).tolist(),
     }
+
+
+def smoothed_accuracy(pred: np.ndarray, y: np.ndarray, video: np.ndarray, k: int = 8) -> float:
+    """
+    Accuracy after the website's smoothing (recognition/pipeline/refine.py): each window's
+    label is the majority of the last k predictions of the same video. Windows of a video are
+    stored in time order by build_dataset.py. (The website's 0.6 confidence threshold is ignored.)
+    """
+    if not len(y):
+        return float("nan")
+    out = np.empty_like(pred)
+    start = 0
+    for i in range(len(pred)):
+        if i and video[i] != video[i - 1]:
+            start = i
+        out[i] = np.bincount(pred[max(start, i - k + 1):i + 1]).argmax()
+    return float((out == y).mean())
+
+
+def video_accuracy(pred: np.ndarray, y: np.ndarray, video: np.ndarray) -> float:
+    """Share of videos whose majority prediction is right (one vote per video)."""
+    if not len(y):
+        return float("nan")
+    right = []
+    for v in np.unique(video):
+        m = video == v
+        right.append(np.bincount(pred[m]).argmax() == y[m][0])
+    return float(np.mean(right))
+
+
+def append_history(out_dir: Path, entry: dict) -> list[dict]:
+    """WORK_DIR/score_history.json: one line per exported model, to compare runs in the journal."""
+    f = out_dir / "score_history.json"
+    hist = json.loads(f.read_text()) if f.exists() else []
+    hist.append(entry)
+    f.write_text(json.dumps(hist, indent=2))
+    return hist
+
+
+def history_table(hist: list[dict], last: int = 8) -> list[str]:
+    lines = ["| Run | Approach | Settings | Test acc | Test F1 | Website-smoothed acc | Video acc |",
+             "|---|---|---|---|---|---|---|"]
+    for h in hist[-last:]:
+        def f(k):
+            v = h.get(k)
+            return f"{v:.3f}" if isinstance(v, (int, float)) and v == v else "–"
+        lines.append(f"| {h.get('id', '')} | {h.get('approach', '')} | {h.get('settings', '')} | {f('test_accuracy')} | "
+                     f"{f('test_macro_f1')} | {f('test_smoothed_accuracy')} | {f('test_video_accuracy')} |")
+    return lines
 
 
 def save_report(out_dir: Path, name: str, rep: dict, classes: list[str], extra: dict | None = None):

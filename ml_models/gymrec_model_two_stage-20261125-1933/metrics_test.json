@@ -1,0 +1,10 @@
+{
+  "accuracy": 0.6206896551724138,
+  "macro_f1": 0.6206560833597418,
+  "split": "test",
+  "val_accuracy": 0.9564293304994687,
+  "val_macro_f1": 0.9528381731930226,
+  "ms_per_window": 113.23415279388428,
+  "size_mb": 19.949632,
+  "model": "two_stage"
+}

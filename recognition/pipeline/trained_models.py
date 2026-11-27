@@ -127,6 +127,18 @@ class SklearnClassifier(ExerciseClassifier):
         return {self.classes[int(c)]: float(p) for c, p in zip(self.model.classes_, probs)}
 
 
+class _Average(ExerciseClassifier):
+    """Average of several classifiers' probabilities (a per-stage ensemble)."""
+
+    def __init__(self, classes, members):
+        super().__init__(classes)
+        self.members, self.loaded = members, True
+
+    def predict_proba(self, feature_window, *, context):
+        probs = [m.predict_proba(feature_window, context=context) for m in self.members]
+        return {c: sum(p.get(c, 0.0) for p in probs) / len(probs) for c in self.classes}
+
+
 class TwoStageClassifier(ExerciseClassifier):
     """
     Router + specialists (training/select_two_stage.py). `model_path` is the bundle's two_stage.json.
@@ -144,13 +156,18 @@ class TwoStageClassifier(ExerciseClassifier):
         manifest = json.loads(path.read_text())
         features = manifest.get("features", "extended")
 
-        def make(entry):
-            if not entry or not entry.get("file"):
-                return None
-            clf = self.BACKENDS[entry["backend"]](classes=entry["classes"], model_path=str(path.parent / entry["file"]))
+        def one(item, classes):
+            clf = self.BACKENDS[item["backend"]](classes=classes, model_path=str(path.parent / item["file"]))
             clf.features = features
             clf.load()
             return clf
+
+        def make(entry):
+            if not entry or not entry.get("file"):
+                return None
+            if entry.get("ensemble"):  # several model types whose probabilities are averaged
+                return _Average(entry["classes"], [one(m, entry["classes"]) for m in entry["ensemble"]])
+            return one(entry, entry["classes"])
 
         self.router = make(manifest.get("router"))
         self.groups = {g: (e["classes"], make(e)) for g, e in manifest["groups"].items()}

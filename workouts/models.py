@@ -28,6 +28,10 @@ class Exercise(models.Model):
     high_angle = models.FloatField(help_text="Angle (deg) that marks the extended position.")
     start_phase = models.CharField(max_length=4, choices=StartPhase.choices, default=StartPhase.HIGH)
     met_value = models.FloatField(default=5.0, help_text="Metabolic equivalent, used for calorie estimate.")
+    form_profile = models.JSONField(
+        default=dict, blank=True,
+        help_text="What correct reps look like, learned from the dataset (training/build_form_profiles.py). "
+                  "Empty: built-in defaults.")
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -128,6 +132,15 @@ class WorkoutSession(models.Model):
         return round(total, 1)
 
 
+def form_score(reps, good, rejected, points) -> int | None:
+    reps, good, rejected, points = reps or 0, good or 0, rejected or 0, points or 0
+    if not reps + rejected:
+        return None
+    if points or rejected:
+        return round(points / (reps + rejected))
+    return round(100 * good / reps)  # records from before rep scores existed
+
+
 class WorkoutRecord(models.Model):
     """
     One continuous block of a single recognised exercise inside a session
@@ -136,8 +149,10 @@ class WorkoutRecord(models.Model):
 
     session = models.ForeignKey(WorkoutSession, on_delete=models.CASCADE, related_name="records")
     exercise = models.ForeignKey(Exercise, on_delete=models.PROTECT, related_name="records")
-    repetitions = models.PositiveIntegerField(default=0)
-    good_form_reps = models.PositiveIntegerField(default=0)
+    repetitions = models.PositiveIntegerField(default=0, help_text="Counted reps (no major form fault).")
+    good_form_reps = models.PositiveIntegerField(default=0, help_text="Counted reps without any form issue.")
+    rejected_reps = models.PositiveIntegerField(default=0, help_text="Attempts not counted: major fault or partial.")
+    form_points = models.FloatField(default=0, help_text="Sum of rep scores (0-100) over all attempts.")
     avg_confidence = models.FloatField(default=0)
     confidence_samples = models.PositiveIntegerField(default=0)
     started_at = models.DateTimeField(default=timezone.now)
@@ -155,10 +170,13 @@ class WorkoutRecord(models.Model):
         return max(0.0, (end - self.started_at).total_seconds())
 
     @property
+    def attempts(self) -> int:
+        return self.repetitions + self.rejected_reps
+
+    @property
     def form_score(self) -> int | None:
-        if not self.repetitions:
-            return None
-        return round(100 * self.good_form_reps / self.repetitions)
+        """Average rep score (0-100) over all attempts, counted or not."""
+        return form_score(self.repetitions, self.good_form_reps, self.rejected_reps, self.form_points)
 
     def add_confidence(self, value: float):
         self.confidence_samples += 1

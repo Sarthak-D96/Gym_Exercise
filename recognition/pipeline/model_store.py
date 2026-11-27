@@ -89,6 +89,7 @@ def build_engine() -> RecognitionEngine:
         e.slug: ExerciseSpec(
             slug=e.slug, name=e.name, angle_points=tuple(e.angle_points),
             low_angle=e.low_angle, high_angle=e.high_angle, start_phase=e.start_phase,
+            form_profile=e.form_profile or None,
         )
         for e in Exercise.objects.filter(is_active=True)
     }
@@ -100,4 +101,5 @@ def build_engine() -> RecognitionEngine:
         input_size=cfg["INPUT_SIZE"],
         smoothing_window=cfg["SMOOTHING_WINDOW"],
         min_confidence=cfg["MIN_CONFIDENCE"],
+        count_only_good_form=cfg.get("COUNT_ONLY_GOOD_FORM", True),
     )

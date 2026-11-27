@@ -6,7 +6,7 @@ import io
 from django.test import SimpleTestCase
 from PIL import Image
 
-from recognition.pipeline import rep_counter
+from recognition.pipeline import posture, rep_counter
 from recognition.pipeline.classifier import DummyExerciseClassifier
 from recognition.pipeline.engine import RecognitionEngine
 from recognition.pipeline.features import FEATURE_SIZE, extract_features
@@ -29,6 +29,17 @@ def leg(knee_angle):
     # ankle points straight down from the knee; rotate by `knee_angle` to place the hip
     hip = Keypoint(0.5 + 0.2 * math.sin(a), 0.5 + 0.2 * math.cos(a))
     return {"left_hip": hip, "left_knee": knee, "left_ankle": ankle}
+
+
+def body(knee_angle, lean=10.0):
+    """leg() plus a left shoulder leaning `lean` degrees forward of vertical, all clearly visible."""
+    import math
+    kp = leg(knee_angle)
+    hip = kp["left_hip"]
+    r = math.radians(lean)
+    kp["left_shoulder"] = Keypoint(hip.x + 0.3 * math.sin(r), hip.y - 0.3 * math.cos(r))
+    kp["left_elbow"] = Keypoint(kp["left_shoulder"].x, kp["left_shoulder"].y + 0.15)
+    return kp
 
 
 class GeometryTests(SimpleTestCase):
@@ -66,16 +77,12 @@ class RepCounterTests(SimpleTestCase):
         self.assertEqual(state.count, 0)
         self.assertTrue(any(u.partial for u in updates))
 
-    def test_rep_with_issue_is_not_good_form(self):
+    def test_rep_with_minor_issue_counts_but_is_not_perfect(self):
         state = rep_counter.RepState()
-        for a in (170, 130):
+        for a in [170, 130, 90, 130, 170]:
             for _ in range(4):
-                rep_counter.update(SQUAT, state, leg(a))
-        state.rep_issues.append("chest_up")
-        for a in (90, 130, 170):
-            for _ in range(4):
-                rep_counter.update(SQUAT, state, leg(a))
-        self.assertEqual((state.count, state.good_count), (1, 0))
+                rep_counter.update(SQUAT, state, body(a, lean=46))  # a bit past the 40° default
+        self.assertEqual((state.count, state.good_count, state.rejected), (1, 0, 0))
 
     def test_low_start_exercise(self):
         state, _ = self.run_angles(PRESS, [85, 130, 170, 130, 85] * 2)
@@ -117,7 +124,7 @@ class RepCounterTests(SimpleTestCase):
         self.assertEqual(s.count, 2)
 
     def test_state_roundtrip(self):
-        s = rep_counter.RepState(count=4, moving=True, rep_issues=["x"])
+        s = rep_counter.RepState(count=4, moving=True, acc={"angle": [90, 170]}, live_codes=["x"])
         self.assertEqual(rep_counter.RepState.from_dict(s.to_dict()), s)
 
 
@@ -234,3 +241,73 @@ class ExtraFeatureTests(SimpleTestCase):
         self.assertEqual(up.shape, (EXTENDED_SIZE,))
         self.assertAlmostEqual(float(up[FEATURE_SIZE]), 0.0, places=2)   # torso upright
         self.assertAlmostEqual(float(flat[FEATURE_SIZE]), 0.5, places=2)  # torso horizontal
+
+
+class FormGradingTests(SimpleTestCase):
+    """Reps are graded (posture.py) and counted only without a major fault."""
+
+    def squat_reps(self, bottoms, lean=10.0, strict=True, spec=SQUAT, frames=4, step_ms=200):
+        state, events, t = rep_counter.RepState(), [], 0
+        for bottom in bottoms:
+            for a in (170, 135, bottom, 135, 170):
+                for _ in range(frames):
+                    t += step_ms
+                    upd = rep_counter.update(spec, state, body(a, lean), t, strict=strict)
+                    if upd.grade:
+                        events.append(upd)
+        return state, events
+
+    def test_good_reps_score_100(self):
+        state, events = self.squat_reps([90, 92, 88])
+        self.assertEqual((state.count, state.good_count, state.rejected), (3, 3, 0))
+        self.assertEqual([e.grade.score for e in events], [100, 100, 100])
+
+    def test_partial_rep_rejected_with_measured_depth(self):
+        state, events = self.squat_reps([90, 118])
+        self.assertEqual((state.count, state.rejected), (1, 1))
+        last = events[-1]
+        self.assertTrue(last.rejected and last.partial)
+        self.assertEqual(last.grade.score, 0)
+        self.assertIn("Squat deeper", last.grade.issues[0].message)
+        self.assertIn("118°", last.grade.issues[0].message)
+
+    def test_slightly_shallow_is_counted_with_tip(self):
+        state, events = self.squat_reps([111])
+        self.assertEqual((state.count, state.good_count), (1, 0))
+        issue = events[0].grade.issues[0]
+        self.assertEqual(issue.severity, "minor")
+        self.assertIn("Almost", issue.message)
+
+    def test_severity_follows_how_wrong(self):
+        for lean, severity, counted in ((30, "good", True), (46, "minor", True), (60, "major", False)):
+            state, events = self.squat_reps([90], lean=lean)
+            self.assertEqual(events[0].grade.severity, severity, lean)
+            self.assertEqual(state.count, 1 if counted else 0, lean)
+        self.assertIn("Too much forward lean (60°", events[0].grade.issues[0].message)
+
+    def test_non_strict_counts_major_faults(self):
+        state, _ = self.squat_reps([90], lean=60, strict=False)
+        self.assertEqual((state.count, state.good_count, state.rejected), (1, 0, 0))
+
+    def test_too_fast(self):
+        _, events = self.squat_reps([90], frames=1, step_ms=100)
+        tempo = [i for i in events[0].grade.issues if i.code.startswith("tempo_")]
+        self.assertTrue(tempo)
+        self.assertIn("fast", tempo[0].message)
+
+    def test_dataset_profile_replaces_defaults(self):
+        profile = {"metrics": {"torso_lean": {"p5": 5, "p50": 12, "p95": 20, "n": 40}}}
+        strict_spec = ExerciseSpec(*[getattr(SQUAT, f) for f in ("slug", "name", "angle_points", "low_angle",
+                                                                 "high_angle", "start_phase")], form_profile=profile)
+        _, events = self.squat_reps([90], lean=30, spec=strict_spec)   # fine by default, minor for this profile
+        self.assertEqual(events[0].grade.severity, "minor")
+        self.assertIn("about 12° is normal", posture.grade_value(
+            posture.EXTRA_CHECKS["squat"][0], strict_spec, 40).message)
+
+    def test_hips_sagging_message(self):
+        spec = ExerciseSpec("push_up", "Push-up", ("left_shoulder", "left_elbow", "left_wrist"), 95, 155, "high")
+        kp = {"left_shoulder": Keypoint(0.3, 0.5), "left_hip": Keypoint(0.5, 0.62), "left_ankle": Keypoint(0.8, 0.5)}
+        m = posture.frame_metrics(spec, kp, "left")
+        issue = posture.live_issues(spec, m)[0]
+        self.assertEqual(issue.severity, "major")
+        self.assertIn("sagging", issue.message)

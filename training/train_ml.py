@@ -20,7 +20,7 @@ import joblib
 import numpy as np
 from sklearn.utils.class_weight import compute_sample_weight
 
-from common import load_data, load_stage, report, save_report, window_stats
+from common import augment, extend_features, features_np, load_data, load_stage, report, save_report, window_stats
 
 
 def main():
@@ -35,10 +35,21 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--stage", type=Path, help="two-stage: JSON stage file written by run_all.py")
     ap.add_argument("--extra-features", action="store_true", help="append the 13 extra features (42 -> 55)")
+    ap.add_argument("--augment-copies", type=int, default=0,
+                    help="add this many augmented copies of every training window (trees get no other augmentation)")
+    ap.add_argument("--augment", choices=["basic", "strong"], default="strong")
     args = ap.parse_args()
 
     stage, classes = load_stage(args.stage, args.data)
-    Xtr, ytr, _, _ = load_data(args.data, "train", stage, args.extra_features)
+    Xtr, ytr, KPtr, _ = load_data(args.data, "train", stage, args.extra_features)
+    if args.augment_copies:
+        rng = np.random.default_rng(args.seed)
+        copies = [Xtr]
+        for _ in range(args.augment_copies):
+            f = features_np(augment(KPtr, rng, args.augment))
+            copies.append(extend_features(f) if args.extra_features else f)
+        Xtr, ytr = np.concatenate(copies), np.tile(ytr, args.augment_copies + 1)
+        print(f"+ {args.augment_copies} augmented cop{'y' if args.augment_copies == 1 else 'ies'} ({args.augment})")
     Xva, yva, _, _ = load_data(args.data, "val", stage, args.extra_features)
     Ftr, Fva = window_stats(Xtr), window_stats(Xva)
     weights = compute_sample_weight("balanced", ytr)

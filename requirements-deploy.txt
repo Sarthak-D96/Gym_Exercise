@@ -1,0 +1,8 @@
+# Server image (Dockerfile). PyTorch is installed first from the CPU-only index, so
+# ultralytics doesn't pull the multi-GB CUDA build.
+-r requirements.txt
+gunicorn>=23
+# versions the deployed model was trained with (ml_models/gymrec_model_two_stage-*/model_card.json)
+scikit-learn==1.6.1
+xgboost==3.4.1
+ultralytics==8.4.218

@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from .models import Exercise, InvalidTransition, WorkoutRecord, WorkoutSession
+from .models import Exercise, InvalidTransition, WorkoutRecord, WorkoutSession, form_score
 from .services import FrameRejected, process_frame, session_summary
 
 
@@ -177,7 +177,8 @@ def api_history(request):
         row["day"]: row
         for row in records.annotate(day=TruncDate("session__created_at"))
         .values("day")
-        .annotate(reps=Sum("repetitions"), good=Sum("good_form_reps"), sessions=Count("session", distinct=True))
+        .annotate(reps=Sum("repetitions"), good=Sum("good_form_reps"), rejected=Sum("rejected_reps"),
+                  points=Sum("form_points"), sessions=Count("session", distinct=True))
     }
     series = []
     for i in range(days):
@@ -188,11 +189,13 @@ def api_history(request):
             "date": d.isoformat(),
             "reps": reps,
             "sessions": row.get("sessions") or 0,
-            "form_score": round(100 * (row.get("good") or 0) / reps) if reps else None,
+            "form_score": form_score(reps, row.get("good"), row.get("rejected"), row.get("points")),
+            "rejected": row.get("rejected") or 0,
         })
     by_exercise = list(
         records.values("exercise__slug", "exercise__name")
-        .annotate(reps=Sum("repetitions"), good=Sum("good_form_reps"), blocks=Count("id"))
+        .annotate(reps=Sum("repetitions"), good=Sum("good_form_reps"), rejected=Sum("rejected_reps"),
+                  blocks=Count("id"))
         .order_by("-reps")
     )
     return JsonResponse({"days": days, "daily": series, "by_exercise": by_exercise})

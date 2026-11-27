@@ -189,3 +189,71 @@ class InstallModelTests(TestCase):
         self.assertAlmostEqual(sum(probs.values()), 1.0, places=5)
         label, conf = engine.classifier.predict([[0.1] * 42] * 16, context={})
         self.assertIn(label, CLASSES)
+
+
+class InstallFormProfilesTests(TestCase):
+    def test_installs_profile_and_calibrated_angles(self):
+        squat = Exercise.objects.get(slug="squat")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "form_profiles.json"
+            path.write_text(json.dumps({"created": "2026-11-26T10:00:00", "exercises": {
+                "squat": {"reps": 120, "videos": 30,
+                          "angles": {"applied": True, "low": 90, "high": 170},
+                          "metrics": {"torso_lean": {"p5": 8, "p25": 14, "p50": 17, "p75": 20, "p95": 26, "n": 120}},
+                          "test": {"attempts": 40, "good": 30, "minor": 6}},
+                "not_on_site": {"reps": 5, "metrics": {}},
+            }}))
+            out = io.StringIO()
+            call_command("install_form_profiles", str(path), stdout=out)
+        squat.refresh_from_db()
+        self.assertEqual((squat.low_angle, squat.high_angle), (90, 170))
+        self.assertEqual(squat.form_profile["metrics"]["torso_lean"]["p50"], 17)
+        self.assertIn("held-out reps counted 36/40", out.getvalue())
+
+        spec = model_store.build_engine().specs["squat"]
+        from recognition.pipeline import posture
+        lean = posture.EXTRA_CHECKS["squat"][0]
+        self.assertIsNone(posture.grade_value(lean, spec, 30))          # fence 20+1.5*6=29, +5 tol = 34
+        self.assertEqual(posture.grade_value(lean, spec, 40).severity, "minor")
+        self.assertEqual(posture.grade_value(lean, spec, 50).severity, "major")
+
+    def test_keep_angles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "p.json"
+            path.write_text(json.dumps({"exercises": {"squat": {"angles": {"applied": True, "low": 90, "high": 170},
+                                                                 "metrics": {}}}}))
+            call_command("install_form_profiles", str(path), keep_angles=True, stdout=io.StringIO())
+        self.assertEqual(Exercise.objects.get(slug="squat").low_angle, 100)
+
+
+class EnsembleStageTests(TestCase):
+    def test_two_stage_with_ensemble_stage(self):
+        if not HAS_TORCH or importlib.util.find_spec("sklearn") is None:
+            self.skipTest("torch / scikit-learn not installed")
+        import joblib
+        import numpy as np
+        from sklearn.tree import DecisionTreeClassifier
+
+        from recognition.pipeline.trained_models import TwoStageClassifier
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(make_two_stage_bundle(Path(tmp))).with_suffix("")
+            rng = np.random.default_rng(1)
+            joblib.dump({"model": DecisionTreeClassifier(random_state=1).fit(rng.random((20, 275)), [0, 1] * 10)},
+                        folder / "body_xgb.joblib")
+            manifest = json.loads((folder / "two_stage.json").read_text())
+            body = manifest["groups"]["body"]
+            body["ensemble"] = [{"file": "body.joblib", "model": "rf", "backend": "sklearn"},
+                                {"file": "body_xgb.joblib", "model": "xgb", "backend": "sklearn"}]
+            (folder / "two_stage.json").write_text(json.dumps(manifest))
+
+            clf = TwoStageClassifier(classes=CLASSES, model_path=str(folder / "two_stage.json"))
+            clf.load()
+            window = [[0.1] * 42] * 16
+            probs = clf.predict_proba(window, context={})
+            self.assertAlmostEqual(sum(probs.values()), 1.0, places=5)
+            # the body stage is the average of its two members
+            members = clf.groups["body"][1].members
+            sub = [m.predict_proba(window, context={}) for m in members]
+            p_body = clf.router.predict_proba(window, context={})["body"]
+            self.assertAlmostEqual(probs["squat"], p_body * (sub[0]["squat"] + sub[1]["squat"]) / 2, places=6)

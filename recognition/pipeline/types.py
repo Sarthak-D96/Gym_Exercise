@@ -53,6 +53,7 @@ class ExerciseSpec:
     low_angle: float
     high_angle: float
     start_phase: str = "high"  # "high" = starts extended, "low" = starts flexed
+    form_profile: dict | None = None  # learned from the dataset (training/build_form_profiles.py)
 
 
 @dataclass
@@ -74,14 +75,17 @@ class FrameResult:
     raw_exercise: str | None      # un-smoothed classifier output for this frame
     raw_confidence: float
     exercise_changed: bool
-    reps: int                     # reps for the current exercise block
-    good_reps: int
+    reps: int                     # counted reps for the current exercise block
+    good_reps: int                # counted reps with no form issue at all
     rep_completed: bool
     angle: float | None
     progress: float               # 0 = start position, 1 = target position
     live_feedback: list[Feedback] # issues visible in this frame
     events: list[Feedback]        # things worth persisting (rep done, partial rep, new issue)
     simulated: bool
+    rejected_reps: int = 0        # reps not counted because of a major form fault (or partial)
+    form_points: float = 0.0      # sum of rep scores (0..100) over all attempts of this block
+    last_rep: dict | None = None  # {"score", "severity", "counted"} of a rep finished in this frame
 
     def to_dict(self):
         return {
@@ -100,4 +104,7 @@ class FrameResult:
             "live_feedback": [f.to_dict() for f in self.live_feedback],
             "events": [f.to_dict() for f in self.events],
             "simulated": self.simulated,
+            "rejected_reps": self.rejected_reps,
+            "form_points": round(self.form_points, 1),
+            "last_rep": self.last_rep,
         }

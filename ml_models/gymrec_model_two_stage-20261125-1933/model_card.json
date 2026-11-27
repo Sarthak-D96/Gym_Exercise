@@ -1,0 +1,570 @@
+{
+  "id": "two_stage-20261125-1933",
+  "created": "2026-11-25T19:33:30",
+  "classifier": {
+    "model": "two_stage",
+    "name": "Two-stage (router + specialists)",
+    "file": "two_stage.json",
+    "backend": "two_stage",
+    "backends": [
+      "sklearn",
+      "torchscript"
+    ],
+    "models": [
+      "cnn",
+      "lstm",
+      "rf",
+      "xgb"
+    ]
+  },
+  "stages": {
+    "router": {
+      "model": "xgb",
+      "classes": [
+        "arms",
+        "core",
+        "legs",
+        "press",
+        "pull"
+      ],
+      "val": {
+        "accuracy": 0.9824654622741764,
+        "macro_f1": 0.9815874339814619
+      },
+      "scores": {
+        "val": {
+          "accuracy": 0.9824654622741764,
+          "macro_f1": 0.9815874339814619
+        },
+        "test": {
+          "accuracy": 0.8176043557168784,
+          "macro_f1": 0.8087465142425746
+        }
+      }
+    },
+    "arms": {
+      "model": "rf",
+      "classes": [
+        "bicep_curl",
+        "hammer_curl",
+        "lateral_raise",
+        "tricep_pushdown"
+      ],
+      "val": {
+        "accuracy": 0.9195402298850575,
+        "macro_f1": 0.9453847190405605
+      },
+      "scores": {
+        "val": {
+          "accuracy": 0.9195402298850575,
+          "macro_f1": 0.9453847190405605
+        },
+        "test": {
+          "accuracy": 0.706766917293233,
+          "macro_f1": 0.7258397820479379
+        }
+      }
+    },
+    "core": {
+      "model": "lstm",
+      "classes": [
+        "leg_raises",
+        "plank",
+        "russian_twist"
+      ],
+      "val": {
+        "accuracy": 1.0,
+        "macro_f1": 1.0
+      },
+      "scores": {
+        "val": {
+          "accuracy": 1.0,
+          "macro_f1": 1.0
+        },
+        "test": {
+          "accuracy": 0.788135593220339,
+          "macro_f1": 0.7781678123933499
+        }
+      }
+    },
+    "legs": {
+      "model": "cnn",
+      "classes": [
+        "deadlift",
+        "hip_thrust",
+        "leg_extension",
+        "romanian_deadlift",
+        "squat"
+      ],
+      "val": {
+        "accuracy": 0.9624413145539906,
+        "macro_f1": 0.9619053020830964
+      },
+      "scores": {
+        "val": {
+          "accuracy": 0.9624413145539906,
+          "macro_f1": 0.9619053020830964
+        },
+        "test": {
+          "accuracy": 0.7465753424657534,
+          "macro_f1": 0.7816821581512837
+        }
+      }
+    },
+    "press": {
+      "model": "cnn",
+      "classes": [
+        "bench_press",
+        "chest_fly_machine",
+        "decline_bench_press",
+        "incline_bench_press",
+        "push_up",
+        "shoulder_press",
+        "tricep_dips"
+      ],
+      "val": {
+        "accuracy": 0.9618181818181818,
+        "macro_f1": 0.9609239891989143
+      },
+      "scores": {
+        "val": {
+          "accuracy": 0.9618181818181818,
+          "macro_f1": 0.9609239891989143
+        },
+        "test": {
+          "accuracy": 0.6303317535545023,
+          "macro_f1": 0.5960721155168119
+        }
+      }
+    },
+    "pull": {
+      "model": "lstm",
+      "classes": [
+        "lat_pulldown",
+        "pull_up",
+        "t_bar_row"
+      ],
+      "val": {
+        "accuracy": 1.0,
+        "macro_f1": 1.0
+      },
+      "scores": {
+        "val": {
+          "accuracy": 1.0,
+          "macro_f1": 1.0
+        },
+        "test": {
+          "accuracy": 0.9197080291970803,
+          "macro_f1": 0.9209708969298399
+        }
+      }
+    }
+  },
+  "groups": {
+    "arms": [
+      "bicep_curl",
+      "hammer_curl",
+      "lateral_raise",
+      "tricep_pushdown"
+    ],
+    "core": [
+      "leg_raises",
+      "plank",
+      "russian_twist"
+    ],
+    "legs": [
+      "deadlift",
+      "hip_thrust",
+      "leg_extension",
+      "romanian_deadlift",
+      "squat"
+    ],
+    "press": [
+      "bench_press",
+      "chest_fly_machine",
+      "decline_bench_press",
+      "incline_bench_press",
+      "push_up",
+      "shoulder_press",
+      "tricep_dips"
+    ],
+    "pull": [
+      "lat_pulldown",
+      "pull_up",
+      "t_bar_row"
+    ]
+  },
+  "pose": {
+    "file": "yolo11n-pose.pt",
+    "name": "yolo11n-pose.pt"
+  },
+  "classes": [
+    "bench_press",
+    "bicep_curl",
+    "chest_fly_machine",
+    "deadlift",
+    "decline_bench_press",
+    "hammer_curl",
+    "hip_thrust",
+    "incline_bench_press",
+    "lat_pulldown",
+    "lateral_raise",
+    "leg_extension",
+    "leg_raises",
+    "plank",
+    "pull_up",
+    "push_up",
+    "romanian_deadlift",
+    "russian_twist",
+    "shoulder_press",
+    "squat",
+    "t_bar_row",
+    "tricep_dips",
+    "tricep_pushdown"
+  ],
+  "exercises": {
+    "squat": {
+      "name": "Squat",
+      "icon": "🏋️",
+      "muscle_group": "Quads, glutes",
+      "met_value": 5.0,
+      "angle_points": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "low_angle": 100,
+      "high_angle": 160,
+      "start_phase": "high"
+    },
+    "push_up": {
+      "name": "Push-up",
+      "icon": "💪",
+      "muscle_group": "Chest, triceps",
+      "met_value": 8.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 95,
+      "high_angle": 155,
+      "start_phase": "high"
+    },
+    "shoulder_press": {
+      "name": "Shoulder Press",
+      "icon": "🙌",
+      "muscle_group": "Shoulders",
+      "met_value": 4.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 100,
+      "high_angle": 155,
+      "start_phase": "low"
+    },
+    "bicep_curl": {
+      "name": "Bicep Curl",
+      "icon": "🦾",
+      "muscle_group": "Biceps",
+      "met_value": 3.5,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 60,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "bench_press": {
+      "name": "Bench Press",
+      "icon": "🏋️",
+      "muscle_group": "Chest, triceps",
+      "met_value": 5.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 95,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "pull_up": {
+      "name": "Pull-up",
+      "icon": "🧗",
+      "muscle_group": "Back, biceps",
+      "met_value": 8.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 90,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "hammer_curl": {
+      "name": "Hammer Curl",
+      "icon": "🦾",
+      "muscle_group": "Biceps, forearms",
+      "met_value": 3.5,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 60,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "incline_bench_press": {
+      "name": "Incline Bench Press",
+      "icon": "🏋️",
+      "muscle_group": "Upper chest",
+      "met_value": 5.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 95,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "decline_bench_press": {
+      "name": "Decline Bench Press",
+      "icon": "🏋️",
+      "muscle_group": "Lower chest",
+      "met_value": 5.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 95,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "lateral_raise": {
+      "name": "Lateral Raise",
+      "icon": "🙆",
+      "muscle_group": "Shoulders",
+      "met_value": 3.5,
+      "angle_points": [
+        "left_hip",
+        "left_shoulder",
+        "left_elbow"
+      ],
+      "low_angle": 30,
+      "high_angle": 75,
+      "start_phase": "low"
+    },
+    "deadlift": {
+      "name": "Deadlift",
+      "icon": "🏋️",
+      "muscle_group": "Back, glutes, hamstrings",
+      "met_value": 6.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "low_angle": 110,
+      "high_angle": 165,
+      "start_phase": "high"
+    },
+    "romanian_deadlift": {
+      "name": "Romanian Deadlift",
+      "icon": "🏋️",
+      "muscle_group": "Hamstrings, glutes",
+      "met_value": 5.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "low_angle": 110,
+      "high_angle": 165,
+      "start_phase": "high"
+    },
+    "lat_pulldown": {
+      "name": "Lat Pulldown",
+      "icon": "🏋️",
+      "muscle_group": "Back, biceps",
+      "met_value": 4.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 80,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "t_bar_row": {
+      "name": "T-Bar Row",
+      "icon": "🏋️",
+      "muscle_group": "Back",
+      "met_value": 5.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 90,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "tricep_pushdown": {
+      "name": "Tricep Pushdown",
+      "icon": "🏋️",
+      "muscle_group": "Triceps",
+      "met_value": 3.5,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 80,
+      "high_angle": 150,
+      "start_phase": "low"
+    },
+    "tricep_dips": {
+      "name": "Tricep Dips",
+      "icon": "🏋️",
+      "muscle_group": "Triceps, chest",
+      "met_value": 5.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "low_angle": 95,
+      "high_angle": 150,
+      "start_phase": "high"
+    },
+    "leg_extension": {
+      "name": "Leg Extension",
+      "icon": "🦵",
+      "muscle_group": "Quads",
+      "met_value": 3.5,
+      "angle_points": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "low_angle": 100,
+      "high_angle": 155,
+      "start_phase": "low"
+    },
+    "hip_thrust": {
+      "name": "Hip Thrust",
+      "icon": "🏋️",
+      "muscle_group": "Glutes",
+      "met_value": 4.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "low_angle": 120,
+      "high_angle": 165,
+      "start_phase": "low"
+    },
+    "leg_raises": {
+      "name": "Leg Raises",
+      "icon": "🏋️",
+      "muscle_group": "Abs",
+      "met_value": 3.5,
+      "angle_points": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "low_angle": 100,
+      "high_angle": 160,
+      "start_phase": "high"
+    },
+    "chest_fly_machine": {
+      "name": "Chest Fly Machine",
+      "icon": "🏋️",
+      "muscle_group": "Chest",
+      "met_value": 3.5,
+      "angle_points": [
+        "left_elbow",
+        "left_shoulder",
+        "right_shoulder"
+      ],
+      "low_angle": 110,
+      "high_angle": 160,
+      "start_phase": "high"
+    },
+    "plank": {
+      "name": "Plank",
+      "icon": "🏋️",
+      "muscle_group": "Core",
+      "met_value": 3.0,
+      "angle_points": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "low_angle": 0,
+      "high_angle": 1,
+      "start_phase": "high"
+    },
+    "russian_twist": {
+      "name": "Russian Twist",
+      "icon": "🏋️",
+      "muscle_group": "Obliques",
+      "met_value": 3.5,
+      "angle_points": [
+        "left_shoulder",
+        "left_hip",
+        "right_hip"
+      ],
+      "low_angle": 70,
+      "high_angle": 100,
+      "start_phase": "high"
+    }
+  },
+  "preprocessing": {
+    "pose_model": "yolo11n-pose.pt",
+    "fps": 5,
+    "imgsz": 640,
+    "window": 16,
+    "stride": 4,
+    "min_conf": 0.3
+  },
+  "selected_by": "validation macro_f1 per stage",
+  "metrics": {
+    "accuracy": 0.6206896551724138,
+    "macro_f1": 0.6206560833597418,
+    "split": "test",
+    "val_accuracy": 0.9564293304994687,
+    "val_macro_f1": 0.9528381731930226,
+    "ms_per_window": 113.23415279388428,
+    "size_mb": 19.949632,
+    "model": "two_stage"
+  },
+  "single_stage_comparison": null,
+  "library_versions": {
+    "torch": "2.14.1+cu130",
+    "scikit-learn": "1.6.1",
+    "xgboost": "3.4.1",
+    "ultralytics": "8.4.218",
+    "numpy": "2.4.6"
+  },
+  "data": {
+    "data_dirs": [
+      "/root/.cache/kagglehub/datasets/amanyadav2030a/processed-train-test-exercise-68k/versions/1/processed-train"
+    ],
+    "test_dirs": [
+      "/root/.cache/kagglehub/datasets/amanyadav2030a/processed-train-test-exercise-68k/versions/1/processed-test"
+    ]
+  }
+}

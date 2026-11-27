@@ -3,6 +3,8 @@ Run the whole training pipeline from gym_config.py and produce a model zip for t
 
     extract  YOLO-pose keypoints for the selected classes   (slow; resumable)
     build    clean, split by video, cut windows             -> WORK_DIR/prepared/
+    profiles what correct reps look like (form grading) and
+             calibrated rep angles, from the dataset         -> WORK_DIR/form_profiles.json
     train    every model in config.MODELS                    -> WORK_DIR/runs/
     select   best model on the validation set, test every
              model once, export the winner                   -> WORK_DIR/gymrec_model_<id>.zip
@@ -62,7 +64,7 @@ def _load_config():
 
 config = _load_config()  # notebooks: `config = run_all.config`, then override values
 
-STEPS = ["extract", "build", "train", "select"]
+STEPS = ["extract", "build", "profiles", "train", "select"]
 ML_MODELS, DL_MODELS = {"rf", "xgb"}, {"lstm", "gru", "cnn"}
 
 
@@ -245,6 +247,7 @@ def step_build():
         cmd += ["--test-keypoints", work() / "keypoints_test"]
     if config.GROUP_REGEX:
         cmd += ["--group-regex", config.GROUP_REGEX]
+    cmd += ["--group-by", getattr(config, "GROUP_BY", "file")]
     # skip if nothing changed since the last build (same settings, no newer keypoints): keeps trained models valid
     stamp, out = work() / "prepared" / "build_command.txt", work() / "prepared" / "train.npz"
     key = " ".join(map(str, cmd[1:]))
@@ -256,6 +259,17 @@ def step_build():
             return
     run(cmd)
     stamp.write_text(key)
+
+
+def step_profiles():
+    resolve_classes()
+    spec_file = work() / "form_profile_exercises.json"
+    spec_file.write_text(json.dumps({c: config.EXERCISES[c] for c in config.CLASSES}, indent=2, ensure_ascii=False))
+    cmd = [sys.executable, HERE / "build_form_profiles.py", "--keypoints", work() / "keypoints",
+           "--exercises", spec_file, "--fps", config.FPS, "--out", work() / "form_profiles.json"]
+    if (work() / "keypoints_test").exists():
+        cmd += ["--test-keypoints", work() / "keypoints_test"]
+    run(cmd)
 
 
 def _up_to_date(runs: Path, m: str, inputs: list[Path]) -> bool:
@@ -283,14 +297,17 @@ def _train_models(data: Path, runs: Path, extra: list) -> None:
             continue
         if m in ML_MODELS:
             cmd = [sys.executable, HERE / "train_ml.py", "--data", data, "--model", m, "--out", runs,
-                   "--seed", config.SEED, "--n-estimators", config.ML_PARAMS.get("n_estimators", 500)]
+                   "--seed", config.SEED, "--n-estimators", config.ML_PARAMS.get("n_estimators", 500),
+                   "--augment-copies", getattr(config, "AUGMENT_COPIES", 0),
+                   "--augment", getattr(config, "AUGMENT", "basic")]
             if m == "xgb":
                 cmd += ["--device", xgb_device]
         elif m in DL_MODELS:
             p = config.DL_PARAMS
             cmd = [sys.executable, HERE / "train_dl.py", "--data", data, "--model", m, "--out", runs,
                    "--hidden", p["hidden"], "--epochs", p["epochs"], "--patience", p["patience"],
-                   "--batch", p["batch"], "--lr", p["lr"], "--workers-seed", config.SEED]
+                   "--batch", p["batch"], "--lr", p["lr"], "--workers-seed", config.SEED,
+                   "--augment", getattr(config, "AUGMENT", "basic")]
         else:
             raise SystemExit(f"Unknown model '{m}' in config.MODELS (use rf, xgb, lstm, gru, cnn).")
         run(cmd + extra)
@@ -309,6 +326,12 @@ def step_train():
         _train_models(data, work() / "two_stage" / "runs" / name, ["--stage", stage_file, "--extra-features"])
 
 
+def settings_summary() -> str:
+    return (f"{len(config.CLASSES)} classes, group={getattr(config, 'GROUP_REGEX', None) and 'regex' or getattr(config, 'GROUP_BY', 'file')}, "
+            f"aug={getattr(config, 'AUGMENT', 'basic')}+{getattr(config, 'AUGMENT_COPIES', 0)}, "
+            f"ens={getattr(config, 'ENSEMBLE_MAX', 1)}, models={','.join(config.MODELS)}")
+
+
 def step_select():
     snapshot = work() / "run_config.json"
     snapshot.write_text(json.dumps({
@@ -322,13 +345,16 @@ def step_select():
         cmd = [sys.executable, HERE / "select_two_stage.py", "--data", work() / "prepared",
                "--plan", write_stages(), "--runs", work() / "two_stage" / "runs", "--single-runs", work() / "runs",
                "--out", work(), "--run-config", snapshot, "--models", *config.MODELS,
-               "--select-by", config.SELECT_BY]
+               "--select-by", config.SELECT_BY, "--ensemble-max", getattr(config, "ENSEMBLE_MAX", 1)]
     else:
         cmd = [sys.executable, HERE / "select_best.py", "--data", work() / "prepared", "--runs", work() / "runs",
                "--out", work(), "--run-config", snapshot, "--models", *config.MODELS,
                "--select-by", config.SELECT_BY]
     if config.FORCE_MODEL:
         cmd += ["--force", config.FORCE_MODEL]
+    cmd += ["--settings", settings_summary()]
+    if (work() / "form_profiles.json").exists():
+        cmd += ["--form-profiles", work() / "form_profiles.json"]
     for candidate in (REPO / config.POSE_MODEL, Path.cwd() / config.POSE_MODEL, Path(config.POSE_MODEL)):
         if candidate.exists():
             cmd += ["--pose-weights", candidate]
@@ -347,7 +373,8 @@ def main(steps: list[str] | None = None) -> None:
           f"Two-stage: {two_stage()}")
     for s in steps:
         print(f"\n{'=' * 20} {s} {'=' * 20}", flush=True)
-        {"extract": step_extract, "build": step_build, "train": step_train, "select": step_select}[s]()
+        {"extract": step_extract, "build": step_build, "profiles": step_profiles, "train": step_train,
+         "select": step_select}[s]()
     if "select" in steps:
         print(f"\nDone. Download the gymrec_model_*.zip from {work()} and run on the laptop:\n"
               "    python manage.py install_model <path to the zip>")
