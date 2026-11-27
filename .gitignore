@@ -14,3 +14,6 @@ yolo*.pt
 !ml_models/gymrec_model_two_stage-20261125-1933/yolo11n-pose.pt
 .neon
 node_modules/
+
+# Cloud Run settings with secrets (see deploy/cloudrun.env.example.yaml)
+deploy/cloudrun.env.yaml

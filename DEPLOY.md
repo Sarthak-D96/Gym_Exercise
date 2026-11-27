@@ -1,4 +1,12 @@
-# Deploying GymRec on Hugging Face Spaces (website + model) with Neon (database)
+# Deploying GymRec (website + model) with Neon (database)
+
+Two ways to host the same Docker image; the database is Neon either way:
+
+* **[Google Cloud Run](#google-cloud-run)**: free monthly allowance, sleeps when unused. Use this
+  if Hugging Face reports a CPU-basic quota limit for your account.
+* **[Hugging Face Spaces](#hugging-face-spaces)**: free CPU tier, when your account gets it.
+
+# Hugging Face Spaces
 
 The website runs as one Docker container on a free Hugging Face **Docker Space**; the data
 lives in **Neon** Postgres (already set up with `neon deploy`, see `.env`). The trained model
@@ -12,7 +20,7 @@ browser (camera) ──HTTPS──► Space: gunicorn + Django + YOLO-pose + two
                                Neon Postgres (users, workouts, model registry)
 ```
 
-## 0. Before the first deploy (on the laptop)
+## 0. Before the first deploy (on the laptop, both hosts)
 
 The Neon database must have the tables and the model registered. Already done for the current
 Neon branch; repeat after switching to a new Neon project or branch:
@@ -93,3 +101,49 @@ seed_demo` on the laptop (it writes to Neon through `.env`).
   folder to the `!ml_models/...` exceptions in `.gitignore` (and remove the old one), commit, then
   run `deploy/push_to_space.sh`.
 * **Never** commit `.env`: the secrets above are the only place the database password belongs.
+
+# Google Cloud Run
+
+Cloud Build builds the `Dockerfile` in Google's network (only the source, about 30 MB, is uploaded;
+`.gcloudignore` keeps `.env` and other secrets out), and Cloud Run runs it with HTTPS at
+`https://gymrec-<id>.<region>.run.app`.
+
+## One-time setup
+
+1. **Google Cloud account and project:** console.cloud.google.com → create a project (e.g.
+   `gymrec`) → **Billing**: link a billing account. Cloud Run needs one even when usage stays inside
+   the free monthly allowance (new accounts also get trial credit).
+2. **Google Cloud CLI** on the laptop, then sign in and select the project:
+   ```bash
+   brew install --cask google-cloud-sdk
+   gcloud auth login
+   gcloud config set project <your-project-id>
+   gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+   ```
+3. **Settings:** `deploy/cloudrun.env.yaml` holds the Neon URLs, a secret key and the allowed hosts
+   (template: `deploy/cloudrun.env.example.yaml`). It is git-ignored and not uploaded with the source;
+   `gcloud` sends its values to Cloud Run as environment variables.
+
+## Deploy and update
+
+```bash
+deploy/deploy_cloud_run.sh
+```
+
+The first run asks to create an Artifact Registry repository (answer **Y**) and takes about
+10–15 minutes; later deploys reuse cached layers. It prints the live URL at the end. Logs:
+Cloud Run console → service `gymrec` → **Logs**.
+
+Settings used: region `us-central1` (close to the Neon database in us-east-2), 2 vCPU / 2 GiB
+(the models peak at about 0.6 GB), scale to zero when idle, at most 2 instances, CPU boost at
+start-up. Change them in `deploy/deploy_cloud_run.sh`.
+
+## Costs and limits
+
+* Request-based billing: you pay only while requests are processed, and the free allowance
+  per billing account per month (180,000 vCPU-seconds, 360,000 GiB-seconds, 2 million requests at
+  the time of writing) is about 25 hours of active processing with these settings. Every camera
+  frame is one request. Check https://cloud.google.com/run/pricing and set a budget alert under
+  **Billing → Budgets & alerts**.
+* After an idle period the first visit starts an instance (about 10–20 s: loading PyTorch, YOLO
+  and the models).

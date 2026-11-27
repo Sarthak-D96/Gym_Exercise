@@ -19,3 +19,6 @@ runs/
 ml_models/*.pt
 ml_models/*.json
 ml_models/gymrec_model_cnn-*
+
+# Cloud Run settings with secrets
+deploy/cloudrun.env.yaml

@@ -1,0 +1,23 @@
+# What `gcloud run deploy --source .` uploads to Cloud Build (the Dockerfile + .dockerignore
+# then decide what goes into the image). Never upload secrets or local environments.
+.gcloudignore
+.git/
+.gitignore
+.env
+.env.*
+!.env.example
+.neon
+deploy/cloudrun.env.yaml
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+staticfiles/
+media/
+.DS_Store
+.claude/
+training/
+runs/
+ml_models/*.pt
+ml_models/*.json
+ml_models/gymrec_model_cnn-*
